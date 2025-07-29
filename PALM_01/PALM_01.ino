@@ -1,11 +1,34 @@
+/*
+
+Credits:
+Developed by Václav Peloušek @toyotavangelis of Bastl Instruments at Pifcamp 2025
+https://bastl-instruments.com
+https://pif.camp
+
+BLE MIDI aid from Rein Gundersen Bentdal who makes this cool instrument https://wavyindustries.com/monkey/
+
+Contributions from pifcamp members:
+
+Full doumentation is here:
+https://docs.google.com/document/d/1CUI6_zo0RurEk8GgtcJpuo6qGxklACaIrTYTMEp8r8M/edit?pli=1&tab=t.0
+
+GitHub repository here:
+https://github.com/vaclav-bastl/PALM01/
+
+Licece TBD
+
+*/
+
 
 #include <Arduino.h>
-//#include <Adafruit_LIS3DH.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include "Adafruit_MPR121.h"
-
 #include <Adafruit_ADXL345_U.h>
+
+const char* BLE_DEVICE_NAME = "PALM_BLE";  // Name shown to host devices
+
+
 #define NEO_PIXEL_PIN D2
 // === CONFIGURATION SECTION ===
 #define USE_BLE_MIDI

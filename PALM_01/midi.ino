@@ -4,7 +4,7 @@
 #include "USBMIDI.h"
 
 
-const char* BLE_DEVICE_NAME = "PALM_BLE";  // Name shown to host devices
+
 
 
 #ifdef USE_SERIAL_MIDI
