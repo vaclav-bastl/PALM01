@@ -75,14 +75,16 @@ void initHw() {
 
   
   delay(100);
-  digitalWrite(I2C_POWER_PIN, HIGH);
+  digitalWrite(I2C_POWER_PIN, LOW);
   delay(100);
   digitalWrite(I2C_POWER_PIN, HIGH);
   delay(100);
   Wire.end();
   Wire.begin();  // Reinitialize I2C
-  delay(200);    // Short delay for stabilization
+  delay(500);    // Short delay for stabilization
 
+  
+  
   initTouchSensors();
   initAccelerometer();
 }

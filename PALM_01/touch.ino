@@ -7,9 +7,9 @@ uint16_t currtouched = 0;
 #define TOUCH_THR 50
 #define THUMBR_THR 50000
 uint8_t touchPin[16] = { 1, 0, 3, 2, 4, 5, 7, 6, 11, 10, 9 };
-long touchMinimum[NUMBER_OF_TOUCHPOINTS] = { 196, 178, 210, 192, 215, 208, 220, 210, 308, 286, 284 };
-long touchMaximum[NUMBER_OF_TOUCHPOINTS] = { 62, 63, 65, 67, 68, 65, 66, 68, 84, 105, 82 };
-long touchMultiMaximum[NUMBER_OF_TOUCHPOINTS] = { 34, 32, 33, 30, 34, 32, 33, 32, 50, 45, 31 };
+long touchMinimum[NUMBER_OF_TOUCHPOINTS] = { 736, 733, 739, 725, 736, 716, 716, 723, 727, 721, 718 };
+long touchMaximum[NUMBER_OF_TOUCHPOINTS] = { 227, 224, 191, 200, 193, 181, 200, 190, 164, 237, 189 };
+long touchMultiMaximum[NUMBER_OF_TOUCHPOINTS] = { 40, 25, 43, 33, 39, 40, 115, 78, 39, 34, 37 };
 
 static constexpr size_t Map_Pressure_Curve_Length = 6;
 const long Map_Pressure_Curve[Map_Pressure_Curve_Length * 2] = { 0, 50, 70, 85, 95, 100,
@@ -35,6 +35,7 @@ void initTouchSensors() {
       ;
   }
   Serial.println("MPR121 found!");
+  cap.setAutoconfig(true);
   cap.setThreshholds(MPR_TOUCH_THR, MPR_RELEASE_THR);
 }
 

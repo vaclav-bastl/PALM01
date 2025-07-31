@@ -26,7 +26,7 @@ Licece TBD
 #include "Adafruit_MPR121.h"
 #include <Adafruit_ADXL345_U.h>
 
-const char* BLE_DEVICE_NAME = "PALM_BLE";  // Name shown to host devices
+const char* BLE_DEVICE_NAME = "MLAP";  // Name shown to host devices
 
 
 #define NEO_PIXEL_PIN D2
@@ -85,20 +85,6 @@ long longPressTime = 0;
 #define NUMBER_OF_FINGERS 8
 
 bool leftHand = true;  //set left/right priority for thumb points
-/*
-these are the numbers in preset that can be edited:
-number 255 is typically used as disable
-
-1. CC of touch point itself
-2. 0-127 would set the variable pressure output maximum, 255 is only ON/OFF without continuous pressure
-3. wrist rotation CC
-4. number wrist rotation CC resets to on context point release 0-127 or 255 to not reset and let the CC hang
-5. elbow rotation CC
-6. number elbow rotation CC resets to on context point release 0-127 or 255 to not reset and let the CC hang
-
-4*8=32
-
-*/
 
 #define INDEX_A 6
 #define INDEX_B 7
@@ -126,6 +112,21 @@ number 255 is typically used as disable
 #define WRIST_RESET 3
 #define ELBOW_CC 4
 #define ELBOW_RESET 5
+
+/*
+these are the numbers in preset that can be edited:
+number 255 is typically used as disable
+
+1. CC of touch point itself
+2. 0-127 would set the variable pressure output maximum, 255 is only ON/OFF without continuous pressure
+3. wrist rotation CC
+4. number wrist rotation CC resets to on context point release 0-127 or 255 to not reset and let the CC hang
+5. elbow rotation CC
+6. number elbow rotation CC resets to on context point release 0-127 or 255 to not reset and let the CC hang
+
+4*8=32
+
+*/
 
 uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] = {
   //LITTLE A
