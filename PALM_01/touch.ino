@@ -24,6 +24,39 @@ uint8_t numberOfTouchedPoints = 0;
 uint8_t runningTouchBuffer[NUMBER_OF_TOUCHPOINTS][RUNNING_TOUCH_SIZE];
 uint8_t lastRunningTouchValue[NUMBER_OF_TOUCHPOINTS];
 uint8_t runningTouchCounter = 0;
+
+void dump_regs() {
+  Serial.println("========================================");
+  Serial.println("CHAN 00 01 02 03 04 05 06 07 08 09 10 11");
+  Serial.println("     -- -- -- -- -- -- -- -- -- -- -- --");
+  // CDC
+  Serial.print("CDC: ");
+  for (int chan = 0; chan < 12; chan++) {
+    uint8_t reg = cap.readRegister8(0x5F + chan);
+    if (reg < 10) Serial.print(" ");
+    Serial.print(reg);
+    Serial.print(" ");
+  }
+  Serial.println();
+  // CDT
+  Serial.print("CDT: ");
+  for (int chan = 0; chan < 6; chan++) {
+    uint8_t reg = cap.readRegister8(0x6C + chan);
+    uint8_t cdtx = reg & 0b111;
+    uint8_t cdty = (reg >> 4) & 0b111;
+    if (cdtx < 10) Serial.print(" ");
+    Serial.print(cdtx);
+    Serial.print(" ");
+    if (cdty < 10) Serial.print(" ");
+    Serial.print(cdty);
+    Serial.print(" ");
+  }
+  Serial.println();
+  Serial.println("========================================");
+}
+
+
+
 void initTouchSensors() {
   Serial.println("Adafruit MPR121 Capacitive Touch sensor test");
 
@@ -34,9 +67,15 @@ void initTouchSensors() {
     while (1)
       ;
   }
+  delay(100);
   Serial.println("MPR121 found!");
+  Serial.println("Initial CDC/CDT values:");
+  dump_regs();
+
   cap.setAutoconfig(true);
   cap.setThreshholds(MPR_TOUCH_THR, MPR_RELEASE_THR);
+
+  dump_regs();
 }
 
 
