@@ -1,3 +1,5 @@
+
+
 long curve_map(long value, const long *table_map, const size_t length) {
   float in_min = 0, in_max = 1.0f, out_min = 0, out_max = 1.0f;
   size_t in_start = 0;

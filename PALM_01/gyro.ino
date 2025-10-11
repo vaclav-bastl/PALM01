@@ -1,5 +1,5 @@
 #include <Adafruit_ADXL345_U.h>
-
+#include "palm_shared.h"
 Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
 
 #define AVG_BUFFER 16

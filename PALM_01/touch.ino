@@ -1,9 +1,10 @@
 // You can have up to 4 on one i2c bus but one is enough for testing!
 Adafruit_MPR121 cap = Adafruit_MPR121();
+#include "palm_shared.h"
 uint16_t currtouched = 0;
 
-#define MPR_TOUCH_THR 6
-#define MPR_RELEASE_THR 3
+#define MPR_TOUCH_THR 10
+#define MPR_RELEASE_THR 8
 #define TOUCH_THR 50
 #define THUMBR_THR 50000
 uint8_t touchPin[16] = { 1, 0, 3, 2, 4, 5, 7, 6, 11, 10, 9 };
@@ -24,6 +25,9 @@ uint8_t numberOfTouchedPoints = 0;
 uint8_t runningTouchBuffer[NUMBER_OF_TOUCHPOINTS][RUNNING_TOUCH_SIZE];
 uint8_t lastRunningTouchValue[NUMBER_OF_TOUCHPOINTS];
 uint8_t runningTouchCounter = 0;
+
+// Pair latch lives here (stateful)
+static int8_t pairLatch[PAIR_COUNT] = { -1, -1, -1, -1 };
 
 void dump_regs() {
   Serial.println("========================================");

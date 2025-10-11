@@ -1,5 +1,5 @@
 
-
+#include "palm_shared.h"
 #define I2C_POWER_PIN D3
 
 const uint8_t buttonPin[NUMBER_OF_BUTTONS] = { D9, D10};  //4, 36, 39, 34 };

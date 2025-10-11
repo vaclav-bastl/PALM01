@@ -2,7 +2,7 @@
 #include <MIDI.h>
 #include "USB.h"
 #include "USBMIDI.h"
-
+#include "palm_shared.h"
 
 
 
