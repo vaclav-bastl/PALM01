@@ -81,37 +81,96 @@ void initTouchSensors() {
 
 
 void readTouchSensors() {
-
   currtouched = cap.touched();
 
-  numberOfTouchedPoints = 0;
-  for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {  //NUMBER_OF_TOUCHPOINTS
-    //read touch values
+  // 1) Raw reads + initial touch detection
+  uint8_t preCount = 0;
+  for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {
     rawTouchValue[i] = cap.filteredData(touchPin[i]);
     touchValue[i] = constrain(map(rawTouchValue[i], touchMinimum[i], touchMaximum[i], 0, 100), 0, 255);
-    //check if points are touched
-    touched[i] = (touchValue[i] > TOUCH_THR || currtouched & _BV(touchPin[i]));
-    //check how many are touched
+
+    // initial raw touch flag (before pair arbitration)
+    bool rawHit = (touchValue[i] > TOUCH_THR) || (currtouched & _BV(touchPin[i]));
+    touched[i] = rawHit;
+    if (rawHit) preCount++;
+  }
+
+  // 2) Pressure curve + multi-touch remap when >1
+  for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {
+    long tv = touchValue[i];
+    if (preCount > 1) {
+      tv = constrain(map(rawTouchValue[i], touchMinimum[i], touchMultiMaximum[i], 0, 100), 0, 255);
+    }
+    calibratedTouchValue[i] = curve_map(tv, Map_Pressure_Curve, Map_Pressure_Curve_Length);
+  }
+
+  // 3) Pair arbitration (mutual exclusivity per finger pair)
+  for (uint8_t k = 0; k < PAIR_COUNT; ++k) {
+    uint8_t a = pairA[k];
+    uint8_t b = pairB[k];
+
+    bool aTouched = touched[a];
+    bool bTouched = touched[b];
+
+    if (aTouched && bTouched) {
+      int aVal = (int)calibratedTouchValue[a];
+      int bVal = (int)calibratedTouchValue[b];
+      int diff = aVal - bVal;
+
+      // default winner by handedness if tie: leftHand -> A, rightHand -> B
+      int8_t winner = leftHand ? 0 : 1;
+
+      // keep latch unless the other exceeds by PAIR_HYST
+      if (pairLatch[k] == 0 && (bVal <= aVal + PAIR_HYST)) {
+        winner = 0; // keep A
+      } else if (pairLatch[k] == 1 && (aVal <= bVal + PAIR_HYST)) {
+        winner = 1; // keep B
+      } else {
+        // no valid latch or clearly outmatched -> choose stronger if beyond hysteresis
+        if (diff > PAIR_HYST)      winner = 0; // A clearly stronger
+        else if (diff < -PAIR_HYST) winner = 1; // B clearly stronger
+        // else keep handedness default winner
+      }
+
+      // Apply mutual exclusivity
+      touched[a] = (winner == 0);
+      touched[b] = (winner == 1);
+      pairLatch[k] = winner;
+    } else if (aTouched) {
+      // only A touched
+      touched[a] = true;
+      touched[b] = false;
+      pairLatch[k] = 0;
+    } else if (bTouched) {
+      // only B touched
+      touched[a] = false;
+      touched[b] = true;
+      pairLatch[k] = 1;
+    } else {
+      // none touched; clear latch
+      touched[a] = false;
+      touched[b] = false;
+      pairLatch[k] = -1;
+    }
+  }
+
+  // 4) Recompute count AFTER arbitration
+  numberOfTouchedPoints = 0;
+  for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {
     if (touched[i]) numberOfTouchedPoints++;
   }
-  //do thumb
-  for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {
-    //if more than 1 are touched the curve change dramatically so recalculate it
-    if (numberOfTouchedPoints > 1) touchValue[i] = constrain(map(rawTouchValue[i], touchMinimum[i], touchMultiMaximum[i], 0, 100), 0, 255);
-    //apply pressure curve for natural response
-    calibratedTouchValue[i] = curve_map(touchValue[i], Map_Pressure_Curve, Map_Pressure_Curve_Length);
-  }
 
-
+  // 5) Edge detection (justTouched / justUntouched)
   for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {
     lastTouchState[i] = touchState[i];
     touchState[i] = touched[i];
-    justTouched[i] = touchState[i] && !lastTouchState[i];
-    justUntouched[i] = !touchState[i] && lastTouchState[i];
+    justTouched[i] =  touchState[i] && !lastTouchState[i];
+    justUntouched[i] = !touchState[i] &&  lastTouchState[i];
   }
 
+  // 6) Running average (fix off-by-one on the counter)
   runningTouchCounter++;
-  if (runningTouchCounter > RUNNING_TOUCH_SIZE) runningTouchCounter = 0;
+  if (runningTouchCounter >= RUNNING_TOUCH_SIZE) runningTouchCounter = 0;
 
   for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++) {
     runningTouchBuffer[i][runningTouchCounter] = calibratedTouchValue[i];
@@ -123,6 +182,7 @@ void readTouchSensors() {
     runningTouchValue[i] = _sum / RUNNING_TOUCH_SIZE;
   }
 }
+
 void printTouchedSensors() {
   for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++)
     if (justTouched[i]) Serial.println(i);

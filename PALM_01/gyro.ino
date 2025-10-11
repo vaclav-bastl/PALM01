@@ -1,60 +1,65 @@
+#include <Adafruit_ADXL345_U.h>
+
 Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
 
 #define AVG_BUFFER 16
+
+
+// Internal filter state
+static int16_t ringBuf[3][AVG_BUFFER] = {{0}};
+static int32_t runningSum[3] = {0, 0, 0};
+static uint8_t head = 0;
+static uint8_t filled = 0;
+
 void initAccelerometer() {
   if (!accel.begin()) {
-    /* There was a problem detecting the ADXL345 ... check your connections */
     Serial.println("Ooops, no ADXL345 detected ... Check your wiring!");
-    while (1)
-      ;
+    while (1) { delay(10); }
   }
   accel.setRange(ADXL345_RANGE_16_G);
+  // Optional: pick a data rate that matches your loop frequency
+  // accel.setDataRate(ADXL345_DATARATE_100_HZ);
 }
-int accelRunningBuffer[3][AVG_BUFFER];
-int runningCounter;
 
+// Read raw register counts just like your original code did.
+// This preserves your numeric range exactly.
+static inline void readAdxlRaw(int out[3]) {
+  out[X_AXIS] = (int)accel.getX();
+  out[Y_AXIS] = (int)accel.getY();
+  out[Z_AXIS] = (int)accel.getZ();
+}
 
 void readAccelerometer() {
-  accelValue[X_AXIS] = accel.getX();
-  accelValue[Y_AXIS] = accel.getY();
-  accelValue[Z_AXIS] = accel.getZ();
-  if (runningCounter < AVG_BUFFER) runningCounter++;
-  else runningCounter = 0;
+  // 1) Latest raw readings (same scale as before)
+  readAdxlRaw(accelValue);
 
-  for (uint i = 0; i < 3; i++) {
-    accelRunningBuffer[i][runningCounter] = accelValue[i];
-    int _sum = 0;
-    for (uint8_t j = 0; j < 16; j++) {
-      _sum += accelRunningBuffer[i][j];
-    }
-   // lastAccelRunningValue[i] = accelRunningValue[i];
-    accelRunningValue[i] = _sum / AVG_BUFFER;
+  // 2) O(1) moving-average update per axis
+  for (uint8_t axis = 0; axis < 3; ++axis) {
+    int16_t old = ringBuf[axis][head];
+    int16_t now = (int16_t)accelValue[axis];
+
+    ringBuf[axis][head] = now;
+    runningSum[axis] += (int32_t)now - (int32_t)old;
+
+    uint8_t denom = (filled < AVG_BUFFER) ? (filled + 1) : AVG_BUFFER;
+    accelRunningValue[axis] = (int)(runningSum[axis] / (int32_t)denom);
   }
-}
-void printAccelValues() {
 
-  Serial.print("X: ");
-  Serial.print(accelValue[X_AXIS]);
-  Serial.print("  ");
-  Serial.print("Y: ");
-  Serial.print(accelValue[Y_AXIS]);
-  Serial.print("  ");
-  Serial.print("Z: ");
-  Serial.print(accelValue[Z_AXIS]);
-  Serial.print("  ");
-  Serial.println("m/s^2 ");
+  // 3) Advance ring head safely
+  head = (uint8_t)((head + 1) % AVG_BUFFER);
+  if (filled < AVG_BUFFER) filled++;
+}
+
+void printAccelValues() {
+  Serial.print("X: "); Serial.print(accelValue[X_AXIS]); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(accelValue[Y_AXIS]); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(accelValue[Z_AXIS]); Serial.print("  ");
+  Serial.println("(raw)");
 }
 
 void printAvgAccelValues() {
-
-  Serial.print("X: ");
-  Serial.print(accelRunningValue[X_AXIS]);
-  Serial.print("  ");
-  Serial.print("Y: ");
-  Serial.print(accelRunningValue[Y_AXIS]);
-  Serial.print("  ");
-  Serial.print("Z: ");
-  Serial.print(accelRunningValue[Z_AXIS]);
-  Serial.print("  ");
-  Serial.println("m/s^2 ");
+  Serial.print("X: "); Serial.print(accelRunningValue[X_AXIS]); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(accelRunningValue[Y_AXIS]); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(accelRunningValue[Z_AXIS]); Serial.print("  ");
+  Serial.println("(raw avg)");
 }
