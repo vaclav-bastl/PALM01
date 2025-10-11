@@ -149,25 +149,25 @@ uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] 
     { /*TCH_CC,RNG*/ 29,255,  /*WR_CC,RST*/ 61,127,  /*EL_CC,RST*/ 94,0 }
   },
   /* MIDDLE_A */ {
-    { /*TCH_CC,RNG*/  4,255,  /*WR_CC,RST*/ 36, 64,  /*EL_CC,RST*/255,0 },
+    { /*TCH_CC,RNG*/  4,255,  /*WR_CC,RST*/ 36, 64,  /*EL_CC,RST*/ 69,0 },
     { /*TCH_CC,RNG*/ 12,127,  /*WR_CC,RST*/ 44,127,  /*EL_CC,RST*/ 77,0 },
     { /*TCH_CC,RNG*/ 20,255,  /*WR_CC,RST*/ 52,127,  /*EL_CC,RST*/ 85,0 },
     { /*TCH_CC,RNG*/ 28,255,  /*WR_CC,RST*/ 60,127,  /*EL_CC,RST*/ 93,0 }
   },
   /* MIDDLE_B */ {
-    { /*TCH_CC,RNG*/  3,255,  /*WR_CC,RST*/ 35, 64,  /*EL_CC,RST*/255,0 },
+    { /*TCH_CC,RNG*/  3,255,  /*WR_CC,RST*/ 35, 64,  /*EL_CC,RST*/ 68,0 },
     { /*TCH_CC,RNG*/ 11,255,  /*WR_CC,RST*/ 43,127,  /*EL_CC,RST*/ 76,0 },
     { /*TCH_CC,RNG*/ 19,255,  /*WR_CC,RST*/ 51,127,  /*EL_CC,RST*/ 84,0 },
     { /*TCH_CC,RNG*/ 27,255,  /*WR_CC,RST*/ 59,127,  /*EL_CC,RST*/ 92,0 }
   },
   /* INDEX_A */ {
-    { /*TCH_CC,RNG*/  2,255,  /*WR_CC,RST*/255,127,  /*EL_CC,RST*/255,0 },
+    { /*TCH_CC,RNG*/  2,255,  /*WR_CC,RST*/ 34,127,  /*EL_CC,RST*/ 67,0 },
     { /*TCH_CC,RNG*/ 10,255,  /*WR_CC,RST*/ 42,127,  /*EL_CC,RST*/ 75,0 },
     { /*TCH_CC,RNG*/ 18,255,  /*WR_CC,RST*/ 50,127,  /*EL_CC,RST*/ 83,0 },
     { /*TCH_CC,RNG*/ 26,255,  /*WR_CC,RST*/ 58,127,  /*EL_CC,RST*/ 91,0 }
   },
   /* INDEX_B */ {
-    { /*TCH_CC,RNG*/  1,255,  /*WR_CC,RST*/255,127,  /*EL_CC,RST*/255,0 },
+    { /*TCH_CC,RNG*/  1,255,  /*WR_CC,RST*/ 33,127,  /*EL_CC,RST*/ 66,0 },
     { /*TCH_CC,RNG*/  9,255,  /*WR_CC,RST*/ 41,127,  /*EL_CC,RST*/ 74,0 },
     { /*TCH_CC,RNG*/ 17,255,  /*WR_CC,RST*/ 49,127,  /*EL_CC,RST*/ 82,0 },
     { /*TCH_CC,RNG*/ 25,255,  /*WR_CC,RST*/ 57,127,  /*EL_CC,RST*/ 90,0 }
@@ -430,4 +430,5 @@ void loop() {
   } else {
     neopixelWrite(NEO_PIXEL_PIN, 10, 0, 0);
   }
+  delay(1);
 }
