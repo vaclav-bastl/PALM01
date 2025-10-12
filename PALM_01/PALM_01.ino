@@ -179,7 +179,7 @@ uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
   /* preset 0 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
   /* preset 1 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
   /* preset 2 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 3 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 }
+  /* preset 3 */ { /*G_WRIST_CC*/92, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93, /*G_ELBOW_RESET*/0 }
 };
 
 // ============== SMART SWITCH GETTERS ====================
@@ -226,14 +226,33 @@ bool anyContextTouchActive() {
 
 // ================= SMART PRESET SWITCH ==================
 // Sends NOTHING if no context touch is active (fixes your complaint).
+// Sends per-finger meaning-aware resets ONLY if any finger is active,
+// but ALWAYS resets preset-global CCs on preset change.
 void switchPresetSmart() {
   bool anyActive = anyContextTouchActive();
-  if (!anyActive) {
-    // No finger context engaged -> don't send any resets on preset change.
-    return;
+
+  // --- Always reset PRESET-GLOBAL CCs when changing preset ---
+  if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
+    uint8_t occ  = presetGlobal[lastPreset][G_WRIST_CC];
+    uint8_t oset = presetGlobal[lastPreset][G_WRIST_RESET];
+    if (!ccDisabled(occ)) {
+      // Always reset old preset's global wrist CC on preset switch
+      sendCC_immediate(occ, oset, MIDI_CHANNEL);
+    }
+  }
+  if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
+    uint8_t occ  = presetGlobal[lastPreset][G_ELBOW_CC];
+    uint8_t oset = presetGlobal[lastPreset][G_ELBOW_RESET];
+    if (!ccDisabled(occ)) {
+      // Always reset old preset's global elbow CC on preset switch
+      sendCC_immediate(occ, oset, MIDI_CHANNEL);
+    }
   }
 
-  // Per-finger meaning-aware resets
+  // If no context touch is active, stop here (skip per-finger smart resets).
+  if (!anyActive) return;
+
+  // --- Per-finger meaning-aware resets (only with context) ---
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_TOUCH) {
       TouchSpec oldT = getTouchSpec(i, lastPreset);
@@ -260,40 +279,19 @@ void switchPresetSmart() {
       }
     }
   }
-
-  // Preset-level (global) motion mapping meaning-aware reset
-  if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
-    uint8_t occ  = presetGlobal[lastPreset][G_WRIST_CC];
-    uint8_t oset = presetGlobal[lastPreset][G_WRIST_RESET];
-    uint8_t ncc  = presetGlobal[currentPreset][G_WRIST_CC];
-    uint8_t nset = presetGlobal[currentPreset][G_WRIST_RESET];
-    if (!ccDisabled(occ)) {
-      bool meaningChanged = ccDisabled(ncc) || (occ != ncc) || (oset != nset);
-      if (meaningChanged) sendCC_immediate(occ, oset, MIDI_CHANNEL);
-    }
-  }
-  if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
-    uint8_t occ  = presetGlobal[lastPreset][G_ELBOW_CC];
-    uint8_t oset = presetGlobal[lastPreset][G_ELBOW_RESET];
-    uint8_t ncc  = presetGlobal[currentPreset][G_ELBOW_CC];
-    uint8_t nset = presetGlobal[currentPreset][G_ELBOW_RESET];
-    if (!ccDisabled(occ)) {
-      bool meaningChanged = ccDisabled(ncc) || (occ != ncc) || (oset != nset);
-      if (meaningChanged) sendCC_immediate(occ, oset, MIDI_CHANNEL);
-    }
-  }
 }
+
 
 // -------------------- CONTEXT HANDLER --------------------
 void handleContext() {
-  // detect if any finger context is active (for preset-level motion)
+  // detect if any finger context is active (for per-finger motion)
   uint8_t activeCount = 0;
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; ++i) if (touchState[i]) activeCount++;
   bool anyActive = (activeCount > 0);
-  static bool prevAnyActive = false;
+  // static bool prevAnyActive = false;   // no longer used
 
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
-    // TOUCH: gate or pressure
+    // TOUCH: gate or pressure (unchanged)
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_TOUCH) {
       uint8_t cc = preset[i][currentPreset][TOUCH_CC];
       if (!ccDisabled(cc)) {
@@ -310,9 +308,8 @@ void handleContext() {
       }
     }
 
-    // MOTION (only while this finger is active)
+    // MOTION (per-finger) only while this finger is active (unchanged)
     if (touchState[i]) {
-      // WRIST (per-finger)
       if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
         uint8_t cc = preset[i][currentPreset][WRIST_CC];
         if (!ccDisabled(cc)) {
@@ -322,7 +319,6 @@ void handleContext() {
           sendCC_throttled(cc, newV, MIDI_CHANNEL, 2, 10, 1);
         }
       }
-      // ELBOW (per-finger)
       if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
         uint8_t cc = preset[i][currentPreset][ELBOW_CC];
         if (!ccDisabled(cc)) {
@@ -334,7 +330,7 @@ void handleContext() {
       }
     }
 
-    // Per-finger resets on release
+    // Per-finger resets on release (unchanged)
     if (justUntouched[i]) {
       if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
         uint8_t cc = preset[i][currentPreset][WRIST_CC];
@@ -347,44 +343,30 @@ void handleContext() {
     }
   }
 
-  // -------- Preset-level (global) motion while ANY finger active --------
-  if (anyActive) {
-    // WRIST global
-    if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
-      uint8_t cc = presetGlobal[currentPreset][G_WRIST_CC];
-      if (!ccDisabled(cc)) {
-        uint8_t newV = constrain(
-            stickyMap(accelRunningValue[Z_AXIS], -200, 255, 127, 0,
-                      lastAccelRunningValue[Z_AXIS], ACCEL_HYSTERESIS), 0, 127);
-        sendCC_throttled(cc, newV, MIDI_CHANNEL, 2, 10, 1);
-      }
+  // -------- Preset-level (global) motion: ALWAYS while preset is active --------
+  if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
+    uint8_t cc = presetGlobal[currentPreset][G_WRIST_CC];
+    if (!ccDisabled(cc)) {
+      uint8_t newV = constrain(
+          stickyMap(accelRunningValue[Z_AXIS], -200, 255, 127, 0,
+                    lastAccelRunningValue[Z_AXIS], ACCEL_HYSTERESIS), 0, 127);
+      sendCC_throttled(cc, newV, MIDI_CHANNEL, 2, 10, 1);
     }
-    // ELBOW global
-    if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
-      uint8_t cc = presetGlobal[currentPreset][G_ELBOW_CC];
-      if (!ccDisabled(cc)) {
-        uint8_t newV = constrain(
-            stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
-                      lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
-        sendCC_throttled(cc, newV, MIDI_CHANNEL, 2, 10, 1);
-      }
+  }
+  if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
+    uint8_t cc = presetGlobal[currentPreset][G_ELBOW_CC];
+    if (!ccDisabled(cc)) {
+      uint8_t newV = constrain(
+          stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
+                    lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
+      sendCC_throttled(cc, newV, MIDI_CHANNEL, 2, 10, 1);
     }
   }
 
-  // When the LAST context point is released, reset preset-level CCs
-  if (prevAnyActive && !anyActive) {
-    if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
-      uint8_t cc = presetGlobal[currentPreset][G_WRIST_CC];
-      if (!ccDisabled(cc)) sendCC_immediate(cc, presetGlobal[currentPreset][G_WRIST_RESET], MIDI_CHANNEL);
-    }
-    if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
-      uint8_t cc = presetGlobal[currentPreset][G_ELBOW_CC];
-      if (!ccDisabled(cc)) sendCC_immediate(cc, presetGlobal[currentPreset][G_ELBOW_RESET], MIDI_CHANNEL);
-    }
-  }
-
-  prevAnyActive = anyActive;
+  // Removed: reset of preset-global CCs when last finger is released.
+  // (They now reset ONLY on preset change.)
 }
+
 
 // -------------------- THUMB / PRESET ---------------------
 void handleThumb() {
