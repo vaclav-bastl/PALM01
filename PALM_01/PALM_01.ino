@@ -113,8 +113,8 @@ inline void sendCC_throttled(uint16_t cc, uint16_t value, uint8_t channel,
   }
 
   uint8_t diff = (last > v) ? (last - v) : (v - last);
-  if (diff < minStep)      return;
-  if (dt   < minIntervalMs) return;
+  if (diff < minStep)       return;
+  if (dt < minIntervalMs)   return;
 
   sendControlChange((uint8_t)cc, v, channel);
   outputCCValue[cc] = v;
@@ -144,7 +144,7 @@ uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] 
   },
   /* RING_B */ {
     { /*TCH_CC,RNG*/  5,255,  /*WR_CC,RST*/ 37,255,  /*EL_CC,RST*/ 70,0 },
-    { /*TCH_CC,RNG*/ 13,255,  /*WR_CC,RST*/ 45,127,  /*EL_CC,RST*/ 78,0 },
+    { /*TCH_CC,RNG*/ 13,255,  /*WR_CC_R   ST*/ 45,127,  /*EL_CC,RST*/ 78,0 },
     { /*TCH_CC,RNG*/ 21,255,  /*WR_CC,RST*/ 53,127,  /*EL_CC,RST*/ 86,0 },
     { /*TCH_CC,RNG*/ 29,255,  /*WR_CC,RST*/ 61,127,  /*EL_CC,RST*/ 94,0 }
   },
@@ -174,13 +174,17 @@ uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] 
   }
 };
 
-// NEW: Preset-level wrist/elbow CC+RESET (per preset). 255 CC = NOT sent.
+// ---------- Preset-global CCs (matches palm_shared.h exactly) ----------
 uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
   /* preset 0 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
   /* preset 1 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 2 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 3 */ { /*G_WRIST_CC*/92, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93, /*G_ELBOW_RESET*/0 }
+  /* preset 2 */ { /*G_WRIST_CC*/94, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
+  /* preset 3 */ { /*G_WRIST_CC*/92,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93,  /*G_ELBOW_RESET*/0 }
 };
+
+// ---------- NEW: NOTE/CC mode flag (kept separate to avoid shape changes) ----------
+static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // preset 2 = NOTE mode
+inline bool isNotePreset(uint8_t p) { return presetMode[p] == 1; }
 
 // ============== SMART SWITCH GETTERS ====================
 TouchSpec getTouchSpec(uint8_t finger, uint8_t p) {
@@ -224,19 +228,117 @@ bool anyContextTouchActive() {
   return false;
 }
 
+// ======== NOTE MODE HELPERS / STATE (isolated to this TU) ========
+namespace {
+  // 13 thresholds across 4 octaves + top root
+  static const int8_t kMainOffsets[13] = {0,4,7,12,16,19,24,28,31,36,40,43,48};
+
+  inline bool indexWantsSeventh(int idx) { return (idx == 0 || idx == 3 || idx == 6 || idx == 9); }
+
+    // 13 thresholds => 13 buckets (0..12), top bucket reachable
+  inline int elbowToIndex(uint8_t v) {
+    int idx = (int)((uint16_t)v * 13 / 128);   // 0..12
+    return (idx > 12) ? 12 : idx;
+  }
+
+
+ // Velocity from how much of one threshold width was traversed since last tick.
+// Crossing a full bucket width -> 127; smaller fraction -> proportional 1..127.
+inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
+  // each bucket width in raw units
+  const float bucketWidth = 128.0f / 13.0f;        // ≈ 9.846
+  float delta = (float)((nowV > lastV) ? (nowV - lastV) : (lastV - nowV));
+  float frac  = delta / bucketWidth;               // 0.0 .. ~N buckets
+  if (frac >= 1.0f) return 127;                    // ≥ one full bucket = max
+  int vel = (int)(1.0f + frac * 126.0f);           // map 0..1 -> 1..127
+  if (vel < 1) vel = 1;
+  if (vel > 127) vel = 127;
+  return (uint8_t)vel;
+}
+
+
+  // Base notes (middle-ish octave for headroom)
+  static const int MIDI_NOTE_C3 = 24;
+  static const int MIDI_NOTE_D3 = 26;
+  static const int MIDI_NOTE_E3 = 28;
+  static const int MIDI_NOTE_F3 = 29;
+  static const int MIDI_NOTE_G3 = 31;
+  static const int MIDI_NOTE_A3 = 33;
+  static const int MIDI_NOTE_B3 = 35;
+
+  // Returns base MIDI root or -1 if none. Swaps A/B per finger when rightHand.
+  int getRootFromTouchesLocal(bool leftHandLocal) {
+    auto a_b = [&](uint8_t a, uint8_t b)->uint8_t { return leftHandLocal ? a : b; };
+
+    uint8_t idxA = a_b(INDEX_A,  INDEX_B);
+    uint8_t idxB = a_b(INDEX_B,  INDEX_A);
+    uint8_t midA = a_b(MIDDLE_A, MIDDLE_B);
+    uint8_t midB = a_b(MIDDLE_B, MIDDLE_A);
+    uint8_t rngA = a_b(RING_A,   RING_B);
+    uint8_t rngB = a_b(RING_B,   RING_A);
+    uint8_t litA = a_b(LITTLE_A, LITTLE_B);
+    uint8_t litB = a_b(LITTLE_B, LITTLE_A);
+    (void)litA;
+
+    int candidates[8];
+    int n = 0;
+    auto addIf = [&](uint8_t finger, int midi){ if (touchState[finger]) candidates[n++] = midi; };
+
+    // Map per spec: B-side fingers = C/D/E/F; A-side fingers = G/A/B
+    addIf(idxB, MIDI_NOTE_C3);
+    addIf(midB, MIDI_NOTE_D3);
+    addIf(rngB, MIDI_NOTE_E3);
+    addIf(litB, MIDI_NOTE_F3);
+    addIf(idxA, MIDI_NOTE_G3);
+    addIf(midA, MIDI_NOTE_A3);
+    addIf(rngA, MIDI_NOTE_B3);
+    // LITTLE_A/B is seventh toggle, not a root
+
+    if (n == 0) return -1;
+    int minv = candidates[0];
+    for (int i=1;i<n;i++) if (candidates[i] < minv) minv = candidates[i];
+    return minv;
+  }
+
+  inline bool addSeventhNowLocal(bool leftHandLocal) {
+    return leftHandLocal ? touchState[LITTLE_A] : touchState[LITTLE_B];
+  }
+
+  // Track currently sounding notes in note mode
+  int8_t  noteQuantIdx = -1;
+  int8_t  lastMainNote = -1;
+  int8_t  last7thNote  = -1;
+  uint8_t lastElbowVal = 0;
+  int     lastRootBase = -100;
+
+  inline void midiNoteOnHelper(uint8_t ch, uint8_t note, uint8_t vel) { sendNoteOn(note, vel, ch); }
+  inline void midiNoteOffHelper(uint8_t ch, uint8_t note)             { sendNoteOff(note, 0, ch); }
+
+  void noteModeAllNotesOffLocal() {
+    if (lastMainNote >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)lastMainNote); lastMainNote = -1; }
+    if (last7thNote  >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)last7thNote);  last7thNote  = -1; }
+    noteQuantIdx = -1;
+  }
+} // namespace
+
 // ================= SMART PRESET SWITCH ==================
-// Sends NOTHING if no context touch is active (fixes your complaint).
+// Sends NOTHING if no context touch is active.
 // Sends per-finger meaning-aware resets ONLY if any finger is active,
 // but ALWAYS resets preset-global CCs on preset change.
 void switchPresetSmart() {
-  bool anyActive = anyContextTouchActive();
+  // --- Handle NOTE preset transitions: kill any sounding notes ---
+  if (isNotePreset(lastPreset) || isNotePreset(currentPreset)) {
+    noteModeAllNotesOffLocal();
+    lastRootBase = -100;
+    // Optional extra safety:
+    // sendControlChange(123, 0, MIDI_CHANNEL); // All Notes Off
+  }
 
-  // --- Always reset PRESET-GLOBAL CCs when changing preset ---
+  // --- Always reset OLD preset's GLOBAL CCs on preset change (mode-agnostic) ---
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
     uint8_t occ  = presetGlobal[lastPreset][G_WRIST_CC];
     uint8_t oset = presetGlobal[lastPreset][G_WRIST_RESET];
     if (!ccDisabled(occ)) {
-      // Always reset old preset's global wrist CC on preset switch
       sendCC_immediate(occ, oset, MIDI_CHANNEL);
     }
   }
@@ -244,16 +346,16 @@ void switchPresetSmart() {
     uint8_t occ  = presetGlobal[lastPreset][G_ELBOW_CC];
     uint8_t oset = presetGlobal[lastPreset][G_ELBOW_RESET];
     if (!ccDisabled(occ)) {
-      // Always reset old preset's global elbow CC on preset switch
       sendCC_immediate(occ, oset, MIDI_CHANNEL);
     }
   }
 
-  // If no context touch is active, stop here (skip per-finger smart resets).
+  // --- Per-finger meaning-aware resets only if there is touch context ---
+  bool anyActive = anyContextTouchActive();
   if (!anyActive) return;
 
-  // --- Per-finger meaning-aware resets (only with context) ---
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
+    // TOUCH mapping resets
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_TOUCH) {
       TouchSpec oldT = getTouchSpec(i, lastPreset);
       TouchSpec newT = getTouchSpec(i, currentPreset);
@@ -262,6 +364,8 @@ void switchPresetSmart() {
         if (meaningChanged) sendCC_immediate(oldT.cc, 0, MIDI_CHANNEL);
       }
     }
+
+    // WRIST mapping resets
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
       MotionSpec oldW = getWristSpec(i, lastPreset);
       MotionSpec newW = getWristSpec(i, currentPreset);
@@ -270,6 +374,8 @@ void switchPresetSmart() {
         if (meaningChanged) sendCC_immediate(oldW.cc, oldW.reset, MIDI_CHANNEL);
       }
     }
+
+    // ELBOW mapping resets
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
       MotionSpec oldE = getElbowSpec(i, lastPreset);
       MotionSpec newE = getElbowSpec(i, currentPreset);
@@ -284,11 +390,103 @@ void switchPresetSmart() {
 
 // -------------------- CONTEXT HANDLER --------------------
 void handleContext() {
+  // ===== NOTE MODE short-circuit =====
+  if (isNotePreset(currentPreset)) {
+    // root from touches; if none, silence and track elbow baseline
+    int rootBase = getRootFromTouchesLocal(leftHand);
+    uint8_t curV = constrain(
+        stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
+                  lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
+
+    if (rootBase < 0) {
+      if (lastMainNote >= 0 || last7thNote >= 0) noteModeAllNotesOffLocal();
+      lastRootBase = -100;
+      lastElbowVal = curV;
+
+      // Even if no root is held, we can still stream preset-global CCs if enabled
+      if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
+        uint8_t ccw = presetGlobal[currentPreset][G_WRIST_CC];
+        if (!ccDisabled(ccw)) {
+          uint8_t wV = constrain(
+              stickyMap(accelRunningValue[Z_AXIS], -200, 255, 127, 0,
+                        lastAccelRunningValue[Z_AXIS], ACCEL_HYSTERESIS), 0, 127);
+          sendCC_throttled(ccw, wV, MIDI_CHANNEL, 2, 10, 1);
+        }
+      }
+      if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
+        uint8_t cce = presetGlobal[currentPreset][G_ELBOW_CC];
+        if (!ccDisabled(cce)) {
+          uint8_t eV = constrain(
+              stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
+                        lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
+          sendCC_throttled(cce, eV, MIDI_CHANNEL, 2, 10, 1);
+        }
+      }
+
+      return;
+    }
+
+    // if root changed, stop notes so we don't hang across roots
+    if (rootBase != lastRootBase) {
+      noteModeAllNotesOffLocal();
+      lastRootBase = rootBase;
+    }
+
+    int idx = elbowToIndex(curV);
+    if (idx != noteQuantIdx) {
+      uint8_t vel = elbowVelocity(curV, lastElbowVal);
+
+      // turn off previous tones
+      if (lastMainNote >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)lastMainNote); lastMainNote = -1; }
+      if (last7thNote  >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)last7thNote);  last7thNote  = -1; }
+
+      // main chord line tone for this threshold
+      int mainSemis = kMainOffsets[idx];
+      int mainNote  = rootBase + mainSemis;
+      midiNoteOnHelper(MIDI_CHANNEL, (uint8_t)mainNote, vel);
+      lastMainNote = (int8_t)mainNote;
+
+      // optional dominant 7th (+10) at idx 0,3,6,9 if LITTLE_A engaged
+      if (addSeventhNowLocal(leftHand) && indexWantsSeventh(idx)) {
+        int seventhNote = rootBase + 10;
+        midiNoteOnHelper(MIDI_CHANNEL, (uint8_t)seventhNote, vel);
+        last7thNote = (int8_t)seventhNote;
+      }
+
+      noteQuantIdx = idx;
+    }
+
+    lastElbowVal = curV;
+
+    // --- Also stream PRESET-GLOBAL CCs while in NOTE mode (if enabled) ---
+    if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
+      uint8_t ccw = presetGlobal[currentPreset][G_WRIST_CC];
+      if (!ccDisabled(ccw)) {
+        uint8_t wV = constrain(
+            stickyMap(accelRunningValue[Z_AXIS], -200, 255, 127, 0,
+                      lastAccelRunningValue[Z_AXIS], ACCEL_HYSTERESIS), 0, 127);
+        sendCC_throttled(ccw, wV, MIDI_CHANNEL, 2, 10, 1);
+      }
+    }
+    if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
+      uint8_t cce = presetGlobal[currentPreset][G_ELBOW_CC];
+      if (!ccDisabled(cce)) {
+        uint8_t eV = constrain(
+            stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
+                      lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
+        sendCC_throttled(cce, eV, MIDI_CHANNEL, 2, 10, 1);
+      }
+    }
+
+    return; // skip CC path entirely
+  }
+
+  // ===== ORIGINAL CC PATH =====
+
   // detect if any finger context is active (for per-finger motion)
   uint8_t activeCount = 0;
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; ++i) if (touchState[i]) activeCount++;
   bool anyActive = (activeCount > 0);
-  // static bool prevAnyActive = false;   // no longer used
 
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
     // TOUCH: gate or pressure (unchanged)
@@ -362,9 +560,6 @@ void handleContext() {
       sendCC_throttled(cc, newV, MIDI_CHANNEL, 2, 10, 1);
     }
   }
-
-  // Removed: reset of preset-global CCs when last finger is released.
-  // (They now reset ONLY on preset change.)
 }
 
 
@@ -393,6 +588,7 @@ void setup() {
   initHw();
   initMidi();
   initCcTracking();
+  noteModeAllNotesOffLocal(); // safety (uses MIDI, so call after initMidi)
 }
 
 void loop() {
