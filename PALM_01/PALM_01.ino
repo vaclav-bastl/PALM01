@@ -16,7 +16,9 @@ const char* BLE_DEVICE_NAME = "PALM_01";
 #define USE_SERIAL_MIDI
 // #define USE_USB_MIDI
 #define USE_DEBUG
-const uint8_t MIDI_CHANNEL = 1;  // 1..16 for most Arduino MIDI libs
+
+// Default channel used when a preset is in CC mode (presetMode == 0)
+const uint8_t MIDI_CHANNEL = 1;  // 1..16
 
 // ======================== ACCEL =========================
 #define ACCEL_HYSTERESIS 3
@@ -185,17 +187,19 @@ uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
   /* preset 3 */ { /*G_WRIST_CC*/92,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93,  /*G_ELBOW_RESET*/0 }
 };
 
-// ---------- Mode flags (unchanged): preset 2 = NOTE mode ----------
-static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // 0=CC mode, 1=NOTE mode
-inline bool isNotePreset(uint8_t p) { return presetMode[p] == 1; }
+// ---------- Mode/channel per preset ----------
+// 0 = CC mode (use MIDI_CHANNEL)
+// 1..16 = NOTE mode, and value is the MIDI channel for this preset.
+static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // example: preset 2 is NOTE mode on ch 10
 
-// ---------- NEW: Per-preset selector CC (pinky-held) ----------
-// Set per preset the CC number to send when the selector is used.
-// Use 255 to disable on that preset.
+inline bool isNotePreset(uint8_t p) { return presetMode[p] >= 1 && presetMode[p] <= 16; }
+inline uint8_t presetMidiChannel(uint8_t p) { return isNotePreset(p) ? presetMode[p] : MIDI_CHANNEL; }
+
+// ---------- Per-preset selector CC (pinky-held) ----------
 static uint8_t presetSelectorCC[NUMBER_OF_PRESETS] = {
   102, // preset 0
   102, // preset 1
-  102, // preset 2 (note mode)
+  102, // preset 2
   102  // preset 3
 };
 inline uint8_t getSelectorCc(uint8_t p) { return presetSelectorCC[p]; }
@@ -308,7 +312,7 @@ namespace {
     return minv;
   }
 
-  // shift rootBase by 12*n so it's nearest to target
+  // Shift rootBase by 12*n so it's nearest to target
   inline int nearestOctaveRoot(int target, int rootBase) {
     int diff = target - rootBase;
     int k = (diff >= 0) ? ((diff + 6) / 12) : ((diff - 6) / 12);
@@ -325,35 +329,44 @@ namespace {
   inline void midiNoteOnHelper(uint8_t ch, uint8_t note, uint8_t vel) { sendNoteOn(note, vel, ch); }
   inline void midiNoteOffHelper(uint8_t ch, uint8_t note)             { sendNoteOff(note, 0, ch); }
 
-  void noteModeAllNotesOffLocal() {
-    if (lastMainNote >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)lastMainNote); lastMainNote = -1; }
-    if (last7thNote  >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)last7thNote);  last7thNote  = -1; }
+  void noteModeAllNotesOffLocal(uint8_t ch) {
+    if (lastMainNote >= 0) { midiNoteOffHelper(ch, (uint8_t)lastMainNote); lastMainNote = -1; }
+    if (last7thNote  >= 0) { midiNoteOffHelper(ch, (uint8_t)last7thNote);  last7thNote  = -1; }
     noteQuantIdx = -1;
   }
 } // namespace
 
 // ================= SMART PRESET SWITCH ==================
 void switchPresetSmart() {
-  // NOTE preset transitions: kill any sounding notes
+  uint8_t lastCh = presetMidiChannel(lastPreset);
+  uint8_t newCh  = presetMidiChannel(currentPreset);
+
+  // --- Handle NOTE preset transitions: kill any sounding notes ---
   if (isNotePreset(lastPreset) || isNotePreset(currentPreset)) {
-    noteModeAllNotesOffLocal();
+    // Stop any sounding notes on the channel we're coming from or currently on
+    noteModeAllNotesOffLocal(lastCh);
+
+    // If we're LEAVING note mode (last was note, new is NOT), also send All Notes Off (CC 123) on last channel
+    if (isNotePreset(lastPreset) && !isNotePreset(currentPreset)) {
+      sendCC_immediate(123, 0, lastCh); // All Notes Off
+    }
+
     lastRootBase = -100;
-    // sendControlChange(123, 0, MIDI_CHANNEL); // All Notes Off (optional)
   }
 
-  // Always reset OLD preset's GLOBAL CCs on preset change
+  // --- Always reset OLD preset's GLOBAL CCs on preset change (mode-agnostic) ---
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
     uint8_t occ  = presetGlobal[lastPreset][G_WRIST_CC];
     uint8_t oset = presetGlobal[lastPreset][G_WRIST_RESET];
-    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, MIDI_CHANNEL);
+    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, lastCh);
   }
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
     uint8_t occ  = presetGlobal[lastPreset][G_ELBOW_CC];
     uint8_t oset = presetGlobal[lastPreset][G_ELBOW_RESET];
-    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, MIDI_CHANNEL);
+    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, lastCh);
   }
 
-  // Per-finger meaning-aware resets only if there is touch context
+  // --- Per-finger meaning-aware resets only if there is touch context ---
   if (!anyContextTouchActive()) return;
 
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
@@ -363,7 +376,7 @@ void switchPresetSmart() {
       TouchSpec newT = getTouchSpec(i, currentPreset);
       if (oldT.enabled) {
         bool meaningChanged = (!newT.enabled) || (oldT.cc != newT.cc) || (oldT.gate != newT.gate);
-        if (meaningChanged) sendCC_immediate(oldT.cc, 0, MIDI_CHANNEL);
+        if (meaningChanged) sendCC_immediate(oldT.cc, 0, lastCh);
       }
     }
 
@@ -373,7 +386,7 @@ void switchPresetSmart() {
       MotionSpec newW = getWristSpec(i, currentPreset);
       if (oldW.enabled) {
         bool meaningChanged = (!newW.enabled) || (oldW.cc != newW.cc) || (oldW.reset != newW.reset);
-        if (meaningChanged) sendCC_immediate(oldW.cc, oldW.reset, MIDI_CHANNEL);
+        if (meaningChanged) sendCC_immediate(oldW.cc, oldW.reset, lastCh);
       }
     }
 
@@ -383,7 +396,7 @@ void switchPresetSmart() {
       MotionSpec newE = getElbowSpec(i, currentPreset);
       if (oldE.enabled) {
         bool meaningChanged = (!newE.enabled) || (oldE.cc != newE.cc) || (oldE.reset != newE.reset);
-        if (meaningChanged) sendCC_immediate(oldE.cc, oldE.reset, MIDI_CHANNEL);
+        if (meaningChanged) sendCC_immediate(oldE.cc, oldE.reset, lastCh);
       }
     }
   }
@@ -396,7 +409,7 @@ inline bool selectorHeld() { return !leftHand ? touchState[LITTLE_A] : touchStat
 void handleContext() {
   // NEW: Selector behavior — when the pinky point is held, the last-touched
   // among {IndexA, IndexB, MiddleA, MiddleB, RingA, RingB} sends a stepped CC,
-  // using the per-preset CC from presetSelectorCC[currentPreset].
+  // using the per-preset CC and channel for the CURRENT preset.
   if (selectorHeld()) {
     uint8_t selCC = getSelectorCc(currentPreset);
     if (!ccDisabled(selCC)) {
@@ -407,13 +420,15 @@ void handleContext() {
         if (justTouched[order[i]]) lastIdx = i;  // "last touched" wins
       }
       if (lastIdx >= 0) {
-        sendCC_immediate(selCC, values[lastIdx], MIDI_CHANNEL);
+        sendCC_immediate(selCC, values[lastIdx], presetMidiChannel(currentPreset));
       }
     }
   }
 
   // ===== NOTE MODE short-circuit =====
   if (isNotePreset(currentPreset)) {
+    uint8_t ch = presetMidiChannel(currentPreset);
+
     // root from touches; if none, silence and track elbow baseline
     int rootBase = getRootFromTouchesLocal(!leftHand);
     uint8_t curV = constrain(
@@ -421,7 +436,7 @@ void handleContext() {
                   lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
 
     if (rootBase < 0) {
-      if (lastMainNote >= 0 || last7thNote >= 0) noteModeAllNotesOffLocal();
+      if (lastMainNote >= 0 || last7thNote >= 0) noteModeAllNotesOffLocal(ch);
       lastRootBase = -100;
       lastElbowVal = curV;
 
@@ -432,7 +447,7 @@ void handleContext() {
           uint8_t wV = constrain(
               stickyMap(accelRunningValue[Z_AXIS], -200, 255, 127, 0,
                         lastAccelRunningValue[Z_AXIS], ACCEL_HYSTERESIS), 0, 127);
-          sendCC_throttled(ccw, wV, MIDI_CHANNEL, 2, 10, 1);
+          sendCC_throttled(ccw, wV, ch, 2, 10, 1);
         }
       }
       if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
@@ -441,7 +456,7 @@ void handleContext() {
           uint8_t eV = constrain(
               stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
                         lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
-          sendCC_throttled(cce, eV, MIDI_CHANNEL, 2, 10, 1);
+          sendCC_throttled(cce, eV, ch, 2, 10, 1);
         }
       }
 
@@ -450,7 +465,7 @@ void handleContext() {
 
     // if root changed, stop notes so we don't hang across roots
     if (rootBase != lastRootBase) {
-      noteModeAllNotesOffLocal();
+      noteModeAllNotesOffLocal(ch);
       lastRootBase = rootBase;
     }
 
@@ -463,8 +478,8 @@ void handleContext() {
                                                : elbowVelocity(curV, lastElbowVal);
 
       // turn off previous tones
-      if (lastMainNote >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)lastMainNote); lastMainNote = -1; }
-      if (last7thNote  >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)last7thNote);  last7thNote  = -1; }
+      if (lastMainNote >= 0) { midiNoteOffHelper(ch, (uint8_t)lastMainNote); lastMainNote = -1; }
+      if (last7thNote  >= 0) { midiNoteOffHelper(ch, (uint8_t)last7thNote);  last7thNote  = -1; }
 
       // compute the "target" note from the elbow bucket
       int mainSemis  = kMainOffsets[idx];
@@ -475,7 +490,7 @@ void handleContext() {
                        ? nearestOctaveRoot(targetNote, rootBase)
                        : targetNote;
 
-      midiNoteOnHelper(MIDI_CHANNEL, (uint8_t)mainNote, vel);
+      midiNoteOnHelper(ch, (uint8_t)mainNote, vel);
       lastMainNote = (int8_t)mainNote;
 
       // (7th note feature removed)
@@ -491,7 +506,7 @@ void handleContext() {
         uint8_t wV = constrain(
             stickyMap(accelRunningValue[Z_AXIS], -200, 255, 127, 0,
                       lastAccelRunningValue[Z_AXIS], ACCEL_HYSTERESIS), 0, 127);
-        sendCC_throttled(ccw, wV, MIDI_CHANNEL, 2, 10, 1);
+        sendCC_throttled(ccw, wV, ch, 2, 10, 1);
       }
     }
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
@@ -500,14 +515,14 @@ void handleContext() {
         uint8_t eV = constrain(
             stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
                       lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
-        sendCC_throttled(cce, eV, MIDI_CHANNEL, 2, 10, 1);
+        sendCC_throttled(cce, eV, ch, 2, 10, 1);
       }
     }
 
     return; // skip CC path entirely
   }
 
-  // ===== ORIGINAL CC PATH =====
+  // ===== ORIGINAL CC PATH (CC mode) =====
 
   // detect if any finger context is active (for per-finger motion)
   uint8_t activeCount = 0;
@@ -515,7 +530,7 @@ void handleContext() {
   bool anyActive = (activeCount > 0);
 
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
-    // TOUCH: gate or pressure (unchanged)
+    // TOUCH: gate or pressure
     if (mappingMode == NOT_MAPPING || mappingMode == MAP_TOUCH) {
       uint8_t cc = preset[i][currentPreset][TOUCH_CC];
       if (!ccDisabled(cc)) {
@@ -532,7 +547,7 @@ void handleContext() {
       }
     }
 
-    // MOTION (per-finger) only while this finger is active (unchanged)
+    // MOTION (per-finger) only while this finger is active
     if (touchState[i]) {
       if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
         uint8_t cc = preset[i][currentPreset][WRIST_CC];
@@ -554,7 +569,7 @@ void handleContext() {
       }
     }
 
-    // Per-finger resets on release (unchanged)
+    // Per-finger resets on release
     if (justUntouched[i]) {
       if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
         uint8_t cc = preset[i][currentPreset][WRIST_CC];
@@ -614,7 +629,8 @@ void setup() {
   initHw();
   initMidi();
   initCcTracking();
-  noteModeAllNotesOffLocal(); // safety (uses MIDI, so call after initMidi)
+  // safety (uses MIDI, so call after initMidi) — send note offs on default ch
+  noteModeAllNotesOffLocal(MIDI_CHANNEL);
 }
 
 void loop() {
@@ -625,7 +641,7 @@ void loop() {
 
   midiRead();
   midiDispatch();   // once per loop, no delays
-
+ // printAvgAccelValues();
   if (bleConnected) {
     if      (mappingMode == MAP_WRIST) neopixelWrite(NEO_PIXEL_PIN, 0, 10, 0);
     else if (mappingMode == MAP_ELBOW) neopixelWrite(NEO_PIXEL_PIN, 0, 10, 10);
