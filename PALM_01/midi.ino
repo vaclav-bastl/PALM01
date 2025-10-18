@@ -4,9 +4,6 @@
 #include "USBMIDI.h"
 #include "palm_shared.h"
 
-
-
-
 #ifdef USE_SERIAL_MIDI
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 #endif
@@ -21,12 +18,12 @@ USBMIDI MIDIUSB;
 NimBLECharacteristic* pMidiCharacteristic;
 #endif
 
-
 #ifdef USE_BLE_MIDI
+// ---- BLE MIDI TX buffering (small messages flush immediately to reduce latency) ----
 uint8_t midiBuffer[1024];
 size_t midiBufferLen = 0;
 
-void bleFlushMidiBuffer() {
+static inline void bleFlushMidiBuffer() {
   if (midiBufferLen == 0) return;
 
   size_t totalLen = midiBufferLen + 2;
@@ -34,12 +31,12 @@ void bleFlushMidiBuffer() {
 #ifdef USE_DEBUG
     Serial.println("⚠️ BLE MIDI packet too large, truncating.");
 #endif
-    midiBufferLen = 64;  // truncate to fit
+    midiBufferLen = 64;
     totalLen = 66;
   }
 
-  uint8_t packet[66];  // safe size
-  packet[0] = 0x80;
+  uint8_t packet[66];
+  packet[0] = 0x80; // BLE-MIDI header (simple timestamp nibble = 0)
   packet[1] = 0x80;
   memcpy(&packet[2], midiBuffer, midiBufferLen);
 
@@ -48,23 +45,26 @@ void bleFlushMidiBuffer() {
 
   midiBufferLen = 0;
 
-
-  neopixelWrite(NEO_PIXEL_PIN, 0, 0, 30);
+  // keep LED lightweight
+  neopixelWrite(NEO_PIXEL_PIN, 0, 0, 20);
 }
 
-
-void bleQueueMIDIMessage(const uint8_t* data, size_t len) {
-  if (len > sizeof(midiBuffer)) return;  // Message too big
+static inline void bleQueueMIDIMessage(const uint8_t* data, size_t len) {
+  if (len > sizeof(midiBuffer)) return;
 
   while (midiBufferLen + len > sizeof(midiBuffer)) {
-    bleFlushMidiBuffer();  // Make space first
-    delay(1);              // brief yield to let BLE stack handle notify
+    bleFlushMidiBuffer();
+    delay(0); // yield without blocking BLE task
   }
 
   memcpy(&midiBuffer[midiBufferLen], data, len);
   midiBufferLen += len;
-}
 
+  // Flush immediately for tiny, latency-sensitive messages
+  if (len <= 3 || midiBufferLen >= 60) {
+    bleFlushMidiBuffer();
+  }
+}
 #endif
 
 void sendNoteOn(uint8_t note, uint8_t velocity, uint8_t channel) {
@@ -78,7 +78,6 @@ void sendNoteOn(uint8_t note, uint8_t velocity, uint8_t channel) {
 #ifdef USE_USB_MIDI
   MIDIUSB.noteOn(note, velocity, channel);
 #endif
-
 }
 
 void sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel) {
@@ -150,22 +149,62 @@ void sendPitchBend(int16_t bend, uint8_t channel) {
 }
 
 #ifdef USE_BLE_MIDI
+// ---- Connection param retry (portable across older NimBLE versions) ----
+static uint16_t g_connHandle = 0;
+
+// Replace your retry task:
+static void requestFastParamsRetry(void* /*pv*/) {
+  // 1st retry after 300 ms: try 15 ms
+  vTaskDelay(pdMS_TO_TICKS(300));
+  if (g_connHandle) {
+    NimBLEDevice::getServer()->updateConnParams(g_connHandle, 12, 12, 0, 400); // 15 ms
+  }
+  // 2nd retry after 700 ms: try 7.5 ms
+  vTaskDelay(pdMS_TO_TICKS(400));
+  if (g_connHandle) {
+    NimBLEDevice::getServer()->updateConnParams(g_connHandle, 6, 6, 0, 400);   // 7.5 ms
+  }
+  vTaskDelete(nullptr);
+}
+
 class MyServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer*, NimBLEConnInfo& ci) override {
     bleConnected = true;
+    g_connHandle = ci.getConnHandle();
 #ifdef USE_DEBUG
-    Serial.println("🔗 Client connected");
+    Serial.printf("Conn: itvl=%.2fms, lat=%u, supTO=%.1fs, handle=%u\n",
+                  ci.getConnInterval() * 1.25f,
+                  ci.getConnLatency(),
+                  ci.getConnTimeout() * 10.0f / 1000.0f,
+                  ci.getConnHandle());
 #endif
-    NimBLEDevice::getServer()->updateConnParams(ci.getConnHandle(), 6, 9, 0, 400);
+    // First shot: 15 ms (often accepted more readily than 7.5 ms)
+    NimBLEDevice::getServer()->updateConnParams(ci.getConnHandle(), 12, 12, 0, 400);
+
+    // Schedule retries (15 ms again, then 7.5 ms)
+    xTaskCreatePinnedToCore(requestFastParamsRetry, "bleFastRetry", 2048, nullptr, 1, nullptr, 0);
+
     neopixelWrite(NEO_PIXEL_PIN, 0, 10, 0);
   }
+
+ // Not marked 'override' so it compiles even if your NimBLE lacks this callback.
+  void onConnParamsUpdate(NimBLEConnInfo& ci) {
+#ifdef USE_DEBUG
+    Serial.printf("ConnUpdate: itvl=%.2fms, lat=%u, supTO=%.1fs\n",
+                  ci.getConnInterval() * 1.25f,
+                  ci.getConnLatency(),
+                  ci.getConnTimeout() * 10.0f / 1000.0f);
+#endif
+  }
+
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
     bleConnected = false;
+    g_connHandle = 0;
 #ifdef USE_DEBUG
     Serial.println("🔌 Client disconnected");
 #endif
     NimBLEDevice::startAdvertising();
-    neopixelWrite(NEO_PIXEL_PIN, 10, 0, 0);
+    neopixelWrite(NEO_PIXEL_PIN, 20, 0, 0);
   }
 };
 
@@ -173,14 +212,21 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
 void adverstiseBle() {
   NimBLEDevice::startAdvertising();
 }
-void bleMidiInit() {
 
+void bleMidiInit() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
+
+  // ---- radio/throughput tunings (portable set) ----
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  NimBLEDevice::setMTU(185);           // available on older NimBLE; helps efficiency
+  // (Your NimBLE lacks setMinPreferred/setMaxPreferred/setDataLen/setPHY — omitted)
+
+  // ---- security ----
   NimBLEDevice::setSecurityAuth(true, true, false);
   NimBLEDevice::setSecurityPasskey(123456);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
+  // ---- GATT server & MIDI characteristic ----
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(new MyServerCallbacks());
 
@@ -188,21 +234,25 @@ void bleMidiInit() {
   pMidiCharacteristic = service->createCharacteristic(
     MIDI_CHARACTERISTIC_UUID,
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::NOTIFY);
+
   pMidiCharacteristic->createDescriptor("2902", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
   NimBLEDescriptor* reportRefDesc = pMidiCharacteristic->createDescriptor("2908", NIMBLE_PROPERTY::READ);
   uint8_t reportRef[] = { 0x01, 0x03 };
   reportRefDesc->setValue(reportRef, sizeof(reportRef));
 
   service->start();
+
+  // ---- advertising ----
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(MIDI_SERVICE_UUID);
   adv->setAppearance(0x03C0);
   adv->start();
+
 #ifdef USE_DEBUG
   Serial.println("📡 BLE MIDI Ready");
 #endif
 }
-#endif
+#endif // USE_BLE_MIDI
 
 void initMidi() {
 #ifdef USE_DEBUG
@@ -232,13 +282,13 @@ void testMidi() {
 
   if (millis() - lastTime > 1000) {
     if (noteOn) {
-      sendNoteOff(60, 100, MIDI_CHANNEL);  // Turn off note
+      sendNoteOff(60, 100, MIDI_CHANNEL);
     } else {
-      sendNoteOn(60, 100, MIDI_CHANNEL);       // Middle C, velocity 100
-      sendControlChange(1, 64, MIDI_CHANNEL);  // Mod wheel (CC1), value 64
-      sendProgramChange(10, MIDI_CHANNEL);     // Change to program 10
-      sendAftertouch(40, MIDI_CHANNEL);        // Channel pressure
-      sendPitchBend(512, MIDI_CHANNEL);        // Slight upward bend
+      sendNoteOn(60, 100, MIDI_CHANNEL);
+      sendControlChange(1, 64, MIDI_CHANNEL);
+      sendProgramChange(10, MIDI_CHANNEL);
+      sendAftertouch(40, MIDI_CHANNEL);
+      sendPitchBend(512, MIDI_CHANNEL);
     }
     noteOn = !noteOn;
 #ifdef USE_BLE_MIDI
@@ -250,6 +300,9 @@ void testMidi() {
     lastTime = millis();
   }
 }
+
 void midiDispatch() {
+#ifdef USE_BLE_MIDI
   bleFlushMidiBuffer();
+#endif
 }
