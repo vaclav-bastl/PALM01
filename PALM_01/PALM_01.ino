@@ -9,6 +9,9 @@
 const char* BLE_DEVICE_NAME = "PALM_01";
 #define NEO_PIXEL_PIN D2
 
+// Fixed velocity for the first note in NOTE mode
+#define NOTE_FIRST_VELOCITY 64
+
 #define USE_BLE_MIDI
 #define USE_SERIAL_MIDI
 // #define USE_USB_MIDI
@@ -178,13 +181,24 @@ uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] 
 uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
   /* preset 0 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
   /* preset 1 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 2 */ { /*G_WRIST_CC*/94, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
+  /* preset 2 */ { /*G_WRIST_CC*/94,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
   /* preset 3 */ { /*G_WRIST_CC*/92,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93,  /*G_ELBOW_RESET*/0 }
 };
 
-// ---------- NEW: NOTE/CC mode flag (kept separate to avoid shape changes) ----------
-static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // preset 2 = NOTE mode
+// ---------- Mode flags (unchanged): preset 2 = NOTE mode ----------
+static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // 0=CC mode, 1=NOTE mode
 inline bool isNotePreset(uint8_t p) { return presetMode[p] == 1; }
+
+// ---------- NEW: Per-preset selector CC (pinky-held) ----------
+// Set per preset the CC number to send when the selector is used.
+// Use 255 to disable on that preset.
+static uint8_t presetSelectorCC[NUMBER_OF_PRESETS] = {
+  102, // preset 0
+  102, // preset 1
+  102, // preset 2 (note mode)
+  102  // preset 3
+};
+inline uint8_t getSelectorCc(uint8_t p) { return presetSelectorCC[p]; }
 
 // ============== SMART SWITCH GETTERS ====================
 TouchSpec getTouchSpec(uint8_t finger, uint8_t p) {
@@ -233,29 +247,23 @@ namespace {
   // 13 thresholds across 4 octaves + top root
   static const int8_t kMainOffsets[13] = {0,4,7,12,16,19,24,28,31,36,40,43,48};
 
-  inline bool indexWantsSeventh(int idx) { return (idx == 0 || idx == 3 || idx == 6 || idx == 9); }
-
-    // 13 thresholds => 13 buckets (0..12), top bucket reachable
+  // 13 thresholds => 13 buckets (0..12), top bucket reachable
   inline int elbowToIndex(uint8_t v) {
     int idx = (int)((uint16_t)v * 13 / 128);   // 0..12
     return (idx > 12) ? 12 : idx;
   }
 
-
- // Velocity from how much of one threshold width was traversed since last tick.
-// Crossing a full bucket width -> 127; smaller fraction -> proportional 1..127.
-inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
-  // each bucket width in raw units
-  const float bucketWidth = 128.0f / 13.0f;        // ≈ 9.846
-  float delta = (float)((nowV > lastV) ? (nowV - lastV) : (lastV - nowV));
-  float frac  = delta / bucketWidth;               // 0.0 .. ~N buckets
-  if (frac >= 1.0f) return 127;                    // ≥ one full bucket = max
-  int vel = (int)(1.0f + frac * 126.0f);           // map 0..1 -> 1..127
-  if (vel < 1) vel = 1;
-  if (vel > 127) vel = 127;
-  return (uint8_t)vel;
-}
-
+  // Velocity from how much of one threshold width was traversed since last tick.
+  inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
+    const float bucketWidth = 128.0f / 13.0f;        // ≈ 9.846
+    float delta = (float)((nowV > lastV) ? (nowV - lastV) : (lastV - nowV));
+    float frac  = delta / bucketWidth;
+    if (frac >= 1.0f) return 127;
+    int vel = (int)(1.0f + frac * 126.0f);
+    if (vel < 1) vel = 1;
+    if (vel > 127) vel = 127;
+    return (uint8_t)vel;
+  }
 
   // Base notes (middle-ish octave for headroom)
   static const int MIDI_NOTE_C3 = 24;
@@ -292,7 +300,7 @@ inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
     addIf(idxA, MIDI_NOTE_G3);
     addIf(midA, MIDI_NOTE_A3);
     addIf(rngA, MIDI_NOTE_B3);
-    // LITTLE_A/B is seventh toggle, not a root
+    // LITTLE_A/B now used only for selector-hold
 
     if (n == 0) return -1;
     int minv = candidates[0];
@@ -300,14 +308,17 @@ inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
     return minv;
   }
 
-  inline bool addSeventhNowLocal(bool leftHandLocal) {
-    return leftHandLocal ? touchState[LITTLE_A] : touchState[LITTLE_B];
+  // shift rootBase by 12*n so it's nearest to target
+  inline int nearestOctaveRoot(int target, int rootBase) {
+    int diff = target - rootBase;
+    int k = (diff >= 0) ? ((diff + 6) / 12) : ((diff - 6) / 12);
+    return rootBase + 12 * k;
   }
 
   // Track currently sounding notes in note mode
   int8_t  noteQuantIdx = -1;
   int8_t  lastMainNote = -1;
-  int8_t  last7thNote  = -1;
+  int8_t  last7thNote  = -1; // no longer used; kept for safety
   uint8_t lastElbowVal = 0;
   int     lastRootBase = -100;
 
@@ -322,37 +333,28 @@ inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
 } // namespace
 
 // ================= SMART PRESET SWITCH ==================
-// Sends NOTHING if no context touch is active.
-// Sends per-finger meaning-aware resets ONLY if any finger is active,
-// but ALWAYS resets preset-global CCs on preset change.
 void switchPresetSmart() {
-  // --- Handle NOTE preset transitions: kill any sounding notes ---
+  // NOTE preset transitions: kill any sounding notes
   if (isNotePreset(lastPreset) || isNotePreset(currentPreset)) {
     noteModeAllNotesOffLocal();
     lastRootBase = -100;
-    // Optional extra safety:
-    // sendControlChange(123, 0, MIDI_CHANNEL); // All Notes Off
+    // sendControlChange(123, 0, MIDI_CHANNEL); // All Notes Off (optional)
   }
 
-  // --- Always reset OLD preset's GLOBAL CCs on preset change (mode-agnostic) ---
+  // Always reset OLD preset's GLOBAL CCs on preset change
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
     uint8_t occ  = presetGlobal[lastPreset][G_WRIST_CC];
     uint8_t oset = presetGlobal[lastPreset][G_WRIST_RESET];
-    if (!ccDisabled(occ)) {
-      sendCC_immediate(occ, oset, MIDI_CHANNEL);
-    }
+    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, MIDI_CHANNEL);
   }
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
     uint8_t occ  = presetGlobal[lastPreset][G_ELBOW_CC];
     uint8_t oset = presetGlobal[lastPreset][G_ELBOW_RESET];
-    if (!ccDisabled(occ)) {
-      sendCC_immediate(occ, oset, MIDI_CHANNEL);
-    }
+    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, MIDI_CHANNEL);
   }
 
-  // --- Per-finger meaning-aware resets only if there is touch context ---
-  bool anyActive = anyContextTouchActive();
-  if (!anyActive) return;
+  // Per-finger meaning-aware resets only if there is touch context
+  if (!anyContextTouchActive()) return;
 
   for (uint8_t i = 0; i < NUMBER_OF_FINGERS; i++) {
     // TOUCH mapping resets
@@ -387,13 +389,33 @@ void switchPresetSmart() {
   }
 }
 
+// ----------- SELECTOR (pinky-held) helpers ---------------
+inline bool selectorHeld() { return !leftHand ? touchState[LITTLE_A] : touchState[LITTLE_B]; }
 
 // -------------------- CONTEXT HANDLER --------------------
 void handleContext() {
+  // NEW: Selector behavior — when the pinky point is held, the last-touched
+  // among {IndexA, IndexB, MiddleA, MiddleB, RingA, RingB} sends a stepped CC,
+  // using the per-preset CC from presetSelectorCC[currentPreset].
+  if (selectorHeld()) {
+    uint8_t selCC = getSelectorCc(currentPreset);
+    if (!ccDisabled(selCC)) {
+      const uint8_t order[6]  = { INDEX_A, INDEX_B, MIDDLE_A, MIDDLE_B, RING_A, RING_B };
+      const uint8_t values[6] = { 0, 25, 51, 76, 102, 127 }; // evenly spaced 0..127
+      int lastIdx = -1;
+      for (int i = 0; i < 6; ++i) {
+        if (justTouched[order[i]]) lastIdx = i;  // "last touched" wins
+      }
+      if (lastIdx >= 0) {
+        sendCC_immediate(selCC, values[lastIdx], MIDI_CHANNEL);
+      }
+    }
+  }
+
   // ===== NOTE MODE short-circuit =====
   if (isNotePreset(currentPreset)) {
     // root from touches; if none, silence and track elbow baseline
-    int rootBase = getRootFromTouchesLocal(leftHand);
+    int rootBase = getRootFromTouchesLocal(!leftHand);
     uint8_t curV = constrain(
         stickyMap(accelRunningValue[X_AXIS], -255, 255, 127, 0,
                   lastAccelRunningValue[X_AXIS], ACCEL_HYSTERESIS), 0, 127);
@@ -434,25 +456,29 @@ void handleContext() {
 
     int idx = elbowToIndex(curV);
     if (idx != noteQuantIdx) {
-      uint8_t vel = elbowVelocity(curV, lastElbowVal);
+      const bool isFirstNoteAfterActivation = (noteQuantIdx < 0);
+
+      // velocity rule: fixed 64 for the first note, otherwise elbow-derived
+      uint8_t vel = isFirstNoteAfterActivation ? (uint8_t)NOTE_FIRST_VELOCITY
+                                               : elbowVelocity(curV, lastElbowVal);
 
       // turn off previous tones
       if (lastMainNote >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)lastMainNote); lastMainNote = -1; }
       if (last7thNote  >= 0) { midiNoteOffHelper(MIDI_CHANNEL, (uint8_t)last7thNote);  last7thNote  = -1; }
 
-      // main chord line tone for this threshold
-      int mainSemis = kMainOffsets[idx];
-      int mainNote  = rootBase + mainSemis;
+      // compute the "target" note from the elbow bucket
+      int mainSemis  = kMainOffsets[idx];
+      int targetNote = rootBase + mainSemis;
+
+      // for the first note, force ROOT in the nearest octave to targetNote
+      int mainNote = isFirstNoteAfterActivation
+                       ? nearestOctaveRoot(targetNote, rootBase)
+                       : targetNote;
+
       midiNoteOnHelper(MIDI_CHANNEL, (uint8_t)mainNote, vel);
       lastMainNote = (int8_t)mainNote;
 
-      // optional dominant 7th (+10) at idx 0,3,6,9 if LITTLE_A engaged
-      if (addSeventhNowLocal(leftHand) && indexWantsSeventh(idx)) {
-        int seventhNote = rootBase + 10;
-        midiNoteOnHelper(MIDI_CHANNEL, (uint8_t)seventhNote, vel);
-        last7thNote = (int8_t)seventhNote;
-      }
-
+      // (7th note feature removed)
       noteQuantIdx = idx;
     }
 
