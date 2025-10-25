@@ -125,6 +125,19 @@ inline void sendCC_throttled(uint16_t cc, uint16_t value, uint8_t channel,
   outputCCValue[cc] = v;
   ccLastSentAt[cc]  = now;
 }
+// ---------- Mode/channel per preset ----------
+// 0 = CC mode (use MIDI_CHANNEL)
+// 1..16 = NOTE mode, and value is the MIDI channel for this preset.
+static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // example: preset 2 is NOTE mode on ch 10
+
+// ---------- Preset-global CCs (matches palm_shared.h exactly) ----------
+uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
+  /* preset 0 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
+  /* preset 1 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
+  /* preset 2 */ { /*G_WRIST_CC*/94,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
+  /* preset 3 */ { /*G_WRIST_CC*/92,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93,  /*G_ELBOW_RESET*/0 }
+};
+
 
 // ===================== PRESET TABLES ====================
 // Per-finger mapping: Presets[finger][presetIndex][field]
@@ -149,7 +162,7 @@ uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] 
   },
   /* RING_B */ {
     { /*TCH_CC,RNG*/  5,255,  /*WR_CC,RST*/ 37,255,  /*EL_CC,RST*/ 70,0 },
-    { /*TCH_CC,RNG*/ 13,255,  /*WR_CC_R   ST*/ 45,127,  /*EL_CC,RST*/ 78,0 },
+    { /*TCH_CC,RNG*/ 13,255,  /*WR_CC_RST*/ 45,127,  /*EL_CC,RST*/ 78,0 },
     { /*TCH_CC,RNG*/ 21,255,  /*WR_CC,RST*/ 53,127,  /*EL_CC,RST*/ 86,0 },
     { /*TCH_CC,RNG*/ 29,255,  /*WR_CC,RST*/ 61,127,  /*EL_CC,RST*/ 94,0 }
   },
@@ -179,18 +192,9 @@ uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] 
   }
 };
 
-// ---------- Preset-global CCs (matches palm_shared.h exactly) ----------
-uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
-  /* preset 0 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 1 */ { /*G_WRIST_CC*/255, /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 2 */ { /*G_WRIST_CC*/94,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/255, /*G_ELBOW_RESET*/0 },
-  /* preset 3 */ { /*G_WRIST_CC*/92,  /*G_WRIST_RESET*/0,  /*G_ELBOW_CC*/93,  /*G_ELBOW_RESET*/0 }
-};
 
-// ---------- Mode/channel per preset ----------
-// 0 = CC mode (use MIDI_CHANNEL)
-// 1..16 = NOTE mode, and value is the MIDI channel for this preset.
-static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 }; // example: preset 2 is NOTE mode on ch 10
+
+
 
 inline bool isNotePreset(uint8_t p) { return presetMode[p] >= 1 && presetMode[p] <= 16; }
 inline uint8_t presetMidiChannel(uint8_t p) { return isNotePreset(p) ? presetMode[p] : MIDI_CHANNEL; }
@@ -248,18 +252,35 @@ bool anyContextTouchActive() {
 
 // ======== NOTE MODE HELPERS / STATE (isolated to this TU) ========
 namespace {
-  // 13 thresholds across 4 octaves + top root
-  static const int8_t kMainOffsets[13] = {0,4,7,12,16,19,24,28,31,36,40,43,48};
+  // --- Quantization tables ---
+  // Base (triad): 3 thresholds per octave across 4 octaves + top root => 13 entries.
+  static const int8_t kOffsetsTriad[13] = {
+    0, 4, 7,
+    12,16,19,
+    24,28,31,
+    36,40,43,
+    48
+  };
 
-  // 13 thresholds => 13 buckets (0..12), top bucket reachable
-  inline int elbowToIndex(uint8_t v) {
-    int idx = (int)((uint16_t)v * 13 / 128);   // 0..12
-    return (idx > 12) ? 12 : idx;
+  // With seventh (dominant b7 = +10): 4 thresholds per octave across 4 octaves + top root => 17 entries.
+  static const int8_t kOffsetsWith7[17] = {
+    0, 4, 7,10,
+    12,16,19,22,
+    24,28,31,34,
+    36,40,43,46,
+    48
+  };
+
+  // Bucketed elbow mapping helpers (parametric by bucket count).
+  inline int elbowToIndex(uint8_t v, int bucketCount /* e.g., 13 or 17 */) {
+    int idx = (int)((uint16_t)v * bucketCount / 128);
+    int maxIdx = bucketCount - 1;
+    return (idx > maxIdx) ? maxIdx : idx;
   }
 
   // Velocity from how much of one threshold width was traversed since last tick.
-  inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV) {
-    const float bucketWidth = 128.0f / 13.0f;        // ≈ 9.846
+  inline uint8_t elbowVelocity(uint8_t nowV, uint8_t lastV, int bucketCount) {
+    const float bucketWidth = 128.0f / (float)bucketCount;
     float delta = (float)((nowV > lastV) ? (nowV - lastV) : (lastV - nowV));
     float frac  = delta / bucketWidth;
     if (frac >= 1.0f) return 127;
@@ -278,8 +299,14 @@ namespace {
   static const int MIDI_NOTE_A3 = 33;
   static const int MIDI_NOTE_B3 = 35;
 
+  // Track whether we’re in "add b7" mode based on touch combo.
+  bool g_addSeventh = false;
+
   // Returns base MIDI root or -1 if none. Swaps A/B per finger when rightHand.
-  int getRootFromTouchesLocal(bool leftHandLocal) {
+  // Extended: detect dominant-7 two-touch pairs; if present, set g_addSeventh and lock root.
+  static inline bool detectDominant7Pair(bool leftHandLocal,
+                                         bool &seventhOut,
+                                         int  &rootOut /* MIDI base of the chord root */) {
     auto a_b = [&](uint8_t a, uint8_t b)->uint8_t { return leftHandLocal ? a : b; };
 
     uint8_t idxA = a_b(INDEX_A,  INDEX_B);
@@ -288,9 +315,51 @@ namespace {
     uint8_t midB = a_b(MIDDLE_B, MIDDLE_A);
     uint8_t rngA = a_b(RING_A,   RING_B);
     uint8_t rngB = a_b(RING_B,   RING_A);
-    uint8_t litA = a_b(LITTLE_A, LITTLE_B);
     uint8_t litB = a_b(LITTLE_B, LITTLE_A);
-    (void)litA;
+
+    // Touch -> note-name booleans
+    bool tC = touchState[idxB];  // C
+    bool tD = touchState[midB];  // D
+    bool tE = touchState[rngB];  // E
+    bool tF = touchState[litB];  // F
+    bool tG = touchState[idxA];  // G
+    bool tA = touchState[midA];  // A
+    bool tB = touchState[rngA];  // B
+
+    if (tC && tB) { seventhOut = true; rootOut = MIDI_NOTE_C3; return true; } // C+B -> C7
+    if (tD && tC) { seventhOut = true; rootOut = MIDI_NOTE_D3; return true; } // D+C -> D7
+    if (tE && tD) { seventhOut = true; rootOut = MIDI_NOTE_E3; return true; } // E+D -> E7
+    if (tF && tE) { seventhOut = true; rootOut = MIDI_NOTE_F3; return true; } // F+E -> F7
+    if (tG && tF) { seventhOut = true; rootOut = MIDI_NOTE_G3; return true; } // G+F -> G7
+    if (tA && tG) { seventhOut = true; rootOut = MIDI_NOTE_A3; return true; } // A+G -> A7
+    if (tB && tA) { seventhOut = true; rootOut = MIDI_NOTE_B3; return true; } // B+A -> B7
+
+    seventhOut = false;
+    return false;
+  }
+
+  int getRootFromTouchesLocal(bool leftHandLocal) {
+    // First, see if we’re in a dominant7 two-touch combo; if so, set the flag & return that root.
+    int rootIfPair = -1;
+    bool sev = false;
+    if (detectDominant7Pair(leftHandLocal, sev, rootIfPair)) {
+      g_addSeventh = sev;
+      return rootIfPair;
+    }
+
+    // Otherwise, fall back to the original single-touch root logic (triad only).
+    g_addSeventh = false;
+
+    auto a_b = [&](uint8_t a, uint8_t b)->uint8_t { return leftHandLocal ? a : b; };
+
+    uint8_t idxA = a_b(INDEX_A,  INDEX_B);
+    uint8_t idxB = a_b(INDEX_B,  INDEX_A);
+    uint8_t midA = a_b(MIDDLE_A, MIDDLE_B);
+    uint8_t midB = a_b(MIDDLE_B, MIDDLE_A);
+    uint8_t rngA = a_b(RING_A,   RING_B);
+    uint8_t rngB = a_b(RING_B,   RING_A);
+    uint8_t litB = a_b(LITTLE_B, LITTLE_A);
+    (void)litB;
 
     int candidates[8];
     int n = 0;
@@ -304,7 +373,6 @@ namespace {
     addIf(idxA, MIDI_NOTE_G3);
     addIf(midA, MIDI_NOTE_A3);
     addIf(rngA, MIDI_NOTE_B3);
-    // LITTLE_A/B now used only for selector-hold
 
     if (n == 0) return -1;
     int minv = candidates[0];
@@ -325,6 +393,8 @@ namespace {
   int8_t  last7thNote  = -1; // no longer used; kept for safety
   uint8_t lastElbowVal = 0;
   int     lastRootBase = -100;
+
+  int     lastBucketCount = 13; // current quantization table size
 
   inline void midiNoteOnHelper(uint8_t ch, uint8_t note, uint8_t vel) { sendNoteOn(note, vel, ch); }
   inline void midiNoteOffHelper(uint8_t ch, uint8_t note)             { sendNoteOff(note, 0, ch); }
@@ -351,7 +421,9 @@ void switchPresetSmart() {
       sendCC_immediate(123, 0, lastCh); // All Notes Off
     }
 
+    // Reset root and bucket table tracking
     lastRootBase = -100;
+    // lastBucketCount preserved until NOTE path picks the new table
   }
 
   // --- Always reset OLD preset's GLOBAL CCs on preset change (mode-agnostic) ---
@@ -463,26 +535,37 @@ void handleContext() {
       return;
     }
 
+    // Decide which offsets to use based on whether the dominant7 pair is active.
+    const int8_t* offsets     = g_addSeventh ? kOffsetsWith7 : kOffsetsTriad;
+    const int     bucketCount = g_addSeventh ? 17 : 13;
+
+    // If bucket table changed (triad <-> seventh), reset quantization to avoid stale index.
+    if (bucketCount != lastBucketCount) {
+      noteModeAllNotesOffLocal(ch);
+      noteQuantIdx    = -1;
+      lastBucketCount = bucketCount;
+    }
+
     // if root changed, stop notes so we don't hang across roots
     if (rootBase != lastRootBase) {
       noteModeAllNotesOffLocal(ch);
       lastRootBase = rootBase;
     }
 
-    int idx = elbowToIndex(curV);
+    int idx = elbowToIndex(curV, bucketCount);
     if (idx != noteQuantIdx) {
       const bool isFirstNoteAfterActivation = (noteQuantIdx < 0);
 
       // velocity rule: fixed 64 for the first note, otherwise elbow-derived
       uint8_t vel = isFirstNoteAfterActivation ? (uint8_t)NOTE_FIRST_VELOCITY
-                                               : elbowVelocity(curV, lastElbowVal);
+                                               : elbowVelocity(curV, lastElbowVal, bucketCount);
 
       // turn off previous tones
       if (lastMainNote >= 0) { midiNoteOffHelper(ch, (uint8_t)lastMainNote); lastMainNote = -1; }
       if (last7thNote  >= 0) { midiNoteOffHelper(ch, (uint8_t)last7thNote);  last7thNote  = -1; }
 
       // compute the "target" note from the elbow bucket
-      int mainSemis  = kMainOffsets[idx];
+      int mainSemis  = offsets[idx];
       int targetNote = rootBase + mainSemis;
 
       // for the first note, force ROOT in the nearest octave to targetNote
@@ -493,7 +576,6 @@ void handleContext() {
       midiNoteOnHelper(ch, (uint8_t)mainNote, vel);
       lastMainNote = (int8_t)mainNote;
 
-      // (7th note feature removed)
       noteQuantIdx = idx;
     }
 
