@@ -1,0 +1,47 @@
+Package Report
+
+-----------------------------------------------------------------------------
+Document:
+Name: overlay.ai
+Color Mode: CMYK color
+Color Profile: none
+Ruler Units: millimeters
+Artboard Dimensions: 117,9011 mm x 25,0753 mm
+Show Images in Outline Mode: OFF
+Highlight Substituted Fonts: OFF
+Highlight Substituted Glyphs: OFF
+Preserve Text Editability
+Simulate Colored Paper: OFF
+
+-----------------------------------------------------------------------------
+Spot Color Objects:
+
+-----------------------------------------------------------------------------
+Missing Fonts:NONE
+
+-----------------------------------------------------------------------------
+Protected Fonts that were not packaged:NONE
+
+-----------------------------------------------------------------------------
+Fonts:
+Acumin Variable Concept Condensed Bold (OTF)
+Myriad Pro (OTF)
+
+-----------------------------------------------------------------------------
+Embedded Fonts:
+NONE
+
+-----------------------------------------------------------------------------
+Missing Links:
+NONE
+
+-----------------------------------------------------------------------------
+Linked Images:
+
+/Uivatelé/toyotavangelis/Plocha/Snimek obrazovky 2025-07-29 v 12.03.49.png
+Type: Transparent RGB
+Bits per Pixel: 32
+Channels: 4
+Size: 1557K, 690 by 578 pixels
+Dimensions: 146,463 by 122,689 points 
+Resolution: 339,199 by 339,199 pixels per inch
