@@ -390,7 +390,10 @@ void serveIndex() {
 }
 
 void setupAP() {
+
   WiFi.mode(WIFI_AP);
+  WiFi.setSleep(true);             // modem sleep
+  WiFi.setTxPower(WIFI_POWER_8_5dBm); // or WIFI_POWER_2dBm if phone is nearby
   WiFi.softAPConfig(AP_IP, AP_IP, AP_MASK);
   WiFi.softAP("PALM_Config", "palm1234", 7, false, 4); // ch7, open to 4 clients
 
