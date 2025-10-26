@@ -1,0 +1,200 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"/>
+<title>PALM Configurator – Tap Test</title>
+<style>
+  :root { --bg:#0b0d10; --fg:#eaeef2; --muted:#9aa4af; --card:#14181d; --stroke:#2a2f36; --hi:#47c1ff; --accent:#ee2a7b; }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px}
+  h1{font-size:20px;margin:6px 0 16px}
+  .layout{display:grid;grid-template-columns:220px 1fr;gap:16px}
+  @media(max-width:900px){ .layout{grid-template-columns:1fr} }
+  .card{background:var(--card);border-radius:18px;padding:14px;box-shadow:0 1px 0 #0008}
+  .controllerCard{display:flex;justify-content:center;align-items:flex-start}
+  /* HARD SIZE CLAMP: both CSS and attribute on the SVG */
+  .controllerCard svg{width:180px;max-width:180px;height:auto;display:block;touch-action:manipulation}
+  label{font-size:12px;color:var(--muted)}
+  select,input{width:100%;padding:10px;border-radius:12px;border:1px solid var(--stroke);background:#0f1318;color:var(--fg)}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .hr{height:1px;background:var(--stroke);margin:12px 0}
+  .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#0f1318;border:1px solid var(--stroke);color:var(--muted);font-size:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre;background:#0f1318;border:1px solid var(--stroke);border-radius:12px;padding:10px;overflow:auto}
+  /* Interactivity */
+  .pad{cursor:pointer;pointer-events:auto;transition:filter .12s ease}
+  .pad:hover{filter:brightness(1.08)}
+  .pad.selected{ fill:var(--hi) !important; stroke:var(--hi); stroke-width:1.5 }
+  .thumb{cursor:pointer;pointer-events:auto;transition:filter .12s ease}
+  .thumb:hover{filter:brightness(1.08)}
+  .thumb.active{ fill:var(--accent) !important }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PALM Configurator <span id="status" class="pill">ready</span></h1>
+
+  <div class="layout">
+    <!-- LEFT: your SVG, with IDs added to the 11 interactives -->
+    <div class="card controllerCard">
+      <!-- Keep viewBox. Add width attr as extra clamp for iOS -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="180" viewBox="0 0 71.73 361.22" aria-label="PALM Controller">
+        <!-- ↓↓↓ YOUR SVG STARTS (unchanged except IDs + classes on interatives) ↓↓↓ -->
+        <defs><style>.q{fill:url(#k);}.r{fill:url(#j);}.s{fill:url(#i);}.t{fill:url(#h);}.u{fill:url(#l);}.v{fill:url(#g);}.w{fill:url(#f);}.x{fill:url(#e);}.y{fill:#58595b;}.z{fill:#bcbec0;}.aa{fill:#231f20;}.ab{fill:#414042;}.ac{fill:#00aeef;}.ad{fill:#fff;}.ae{fill:#ee2a7b;}.af{fill:#27aae1;}.ag{fill:#e6e7e8;}</style>
+          <linearGradient id="e" x1="1379.18" y1="1783.77" x2="1423.05" y2="1739.91" gradientTransform="translate(-1349.35 -1702.19)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#b6b8ba" stop-opacity=".8"/><stop offset=".57" stop-color="#5e5d5e" stop-opacity=".92"/><stop offset="1" stop-color="#231f20"/></linearGradient>
+          <linearGradient id="f" x1="1379.12" y1="1816.93" x2="1423.11" y2="1772.93" gradientTransform="translate(-1382.44 -1735.28)" xlink:href="#e"/>
+          <linearGradient id="g" x1="1436.04" y1="1816.29" x2="1479.03" y2="1773.31" gradientTransform="translate(-1438.74 -1678.73)" xlink:href="#e"/>
+          <linearGradient id="h" x1="1435.81" y1="1783.52" x2="1479.01" y2="1740.33" gradientTransform="translate(-1405.73 -1645.98)" xlink:href="#e"/>
+          <linearGradient id="i" x1="1490.45" y1="1782.38" x2="1531.36" y2="1741.47" gradientTransform="translate(-1459.23 -1592.48)" xlink:href="#e"/>
+          <linearGradient id="j" x1="1490.37" y1="1815.26" x2="1531.28" y2="1774.35" gradientTransform="translate(-1492.03 -1625.44)" xlink:href="#e"/>
+          <linearGradient id="k" x1="1541.97" y1="1815.21" x2="1582.79" y2="1774.39" gradientTransform="translate(-1543.58 -1573.88)" xlink:href="#e"/>
+          <linearGradient id="l" x1="1541.93" y1="1782.38" x2="1582.83" y2="1741.47" gradientTransform="translate(-1510.7 -1541)" xlink:href="#e"/>
+        </defs>
+        <g id="d"><rect class="ab" x="4.27" y="8.63" width="61.27" height="12.21"/>
+          <path class="ab" d="M71.49,349.3V11.69L60.03,0H11.92L0,11.69v337.61l11.92,11.92h47.66l11.92-11.92ZM6.91,13.68c0-2.76,2.24-5,5-5s5,2.24,5,5-2.24,5-5,5-5-2.24-5-5ZM30.74,13.68c0-2.76,2.24-5,5-5s5,2.24,5,5-2.24,5-5,5-5-2.24-5-5ZM54.57,13.68c0-2.76,2.24-5,5-5s5,2.24,5,5-2.24,5-5,5-5-2.24-5-5ZM31.06,283.77c0-2.59,2.1-4.69,4.69-4.69s4.69,2.1,4.69,4.69-2.1,4.69-4.69,4.69-4.69-2.1-4.69-4.69Z"/>
+          <rect class="x" x="23.74" y="43.81" width="56.04" height="31.7" transform="translate(111.42 7.89) rotate(90)"/>
+          <rect class="w" x="-9.35" y="43.68" width="56.04" height="31.95" transform="translate(78.33 40.98) rotate(90)"/>
+          <rect class="v" x="-8.34" y="100.23" width="54.27" height="31.7" transform="translate(134.87 97.28) rotate(90)"/>
+          <rect class="t" x="24.42" y="100.02" width="54.52" height="31.86" transform="translate(167.63 64.27) rotate(90)"/>
+          <rect class="s" x="26.7" y="153.52" width="49.95" height="31.86" transform="translate(221.13 117.77) rotate(90)"/>
+          <rect class="r" x="-6.26" y="153.52" width="50.12" height="31.7" transform="translate(188.16 150.56) rotate(90)"/>
+          <rect class="q" x="-6.18" y="205.07" width="49.95" height="31.7" transform="translate(239.72 202.12) rotate(90)"/>
+          <rect class="u" x="26.7" y="204.99" width="49.95" height="31.86" transform="translate(272.6 169.24) rotate(90)"/>
+          <!-- logo text kept -->
+        </g>
+        <g id="m"><path class="aa" d="M71.73,349.3V11.69L60.26,0H12.15L.23,11.69v337.61l11.92,11.92h47.66l11.92-11.92ZM67.99,273.7v1.41c.88,0,1.59.71,1.59,1.59s-.71,1.59-1.59,1.59v10.96c.88,0,1.59.71,1.59,1.59s-.71,1.59-1.59,1.59v.99h-20.34v-.99c-.88,0-1.59-.71-1.59-1.59s.71-1.59,1.59-1.59v-10.96c-.88,0-1.59-.71-1.59-1.59s.71-1.59,1.59-1.59v-1.41h20.34ZM35.98,288.46c-2.59,0-4.69-2.1-4.69-4.69s2.1-4.69,4.69-4.69,4.69,2.1,4.69,4.69-2.1,4.69-4.69,4.69ZM7.15,13.68c0-2.76,2.24-5,5-5s5,2.24,5,5-2.24,5-5,5-5-2.24-5-5ZM30.98,13.68c0-2.76,2.24-5,5-5s5,2.24,5,5-2.24,5-5,5-5-2.24-5-5ZM54.81,13.68c0-2.76,2.24-5,5-5s5,2.24,5,5-2.24,5-5,5-5-2.24-5-5Z"/></g>
+        <g id="n"><rect class="z" x="3.97" y="273.69" width="20.34" height="20.34"/><circle class="aa" cx="14.34" cy="283.99" r="5.71"/><rect class="z" x="47.66" y="273.69" width="20.34" height="20.34"/><circle class="aa" cx="58.03" cy="283.99" r="5.71"/><rect class="ag" x="26.57" y="300.63" width="18.34" height="17.72"/><circle class="af" cx="35.75" cy="309.49" r="7.13"/><circle class="ab" cx="35.98" cy="283.99" r="8.91"/></g>
+
+        <!-- INTERACTIVE GROUP: add IDs to these shapes -->
+        <g id="p">
+          <!-- Thumbs (add ids + class) -->
+          <path id="THUMB_R" class="z thumb" d="M65.1,4.75h-10.6l-5.3,9.18,5.3,9.18h10.6l5.3-9.18-5.3-9.18Z"/>
+          <path id="THUMB_M" class="z thumb" d="M41.21,4.75h-10.6l-5.3,9.18,5.3,9.18h10.6l5.3-9.18-5.3-9.18Z"/>
+          <path id="THUMB_L" class="ae thumb" d="M17.32,4.75H6.71L1.41,13.93l5.3,9.18h10.6l5.3-9.18-5.3-9.18Z"/>
+          <!-- Pads (add ids + class="pad") -->
+          <polygon id="LITTLE_A" class="z pad" points="25.73 197.79 14.08 197.79 5.85 206.02 5.85 217.66 14.08 225.9 25.73 225.9 33.96 217.66 33.96 206.02 25.73 197.79"/>
+          <polygon id="LITTLE_B" class="z pad" points="57.35 197.79 45.7 197.79 37.47 206.02 37.47 217.66 45.7 225.9 57.35 225.9 65.58 217.66 65.58 206.02 57.35 197.79"/>
+          <polygon id="RING_A" class="z pad" points="25.73 154.22 14.08 154.22 5.85 162.46 5.85 174.1 14.08 182.33 25.73 182.33 33.96 174.1 33.96 162.46 25.73 154.22"/>
+          <polygon id="RING_B" class="z pad" points="57.35 154.22 45.7 154.22 37.47 162.46 37.47 174.1 45.7 182.33 57.35 182.33 65.58 174.1 65.58 162.46 57.35 154.22"/>
+          <polygon id="MIDDLE_A" class="z pad" points="25.73 105.93 14.08 105.93 5.85 114.16 5.85 125.8 14.08 134.04 25.73 134.04 33.96 125.8 33.96 114.16 25.73 105.93"/>
+          <polygon id="MIDDLE_B" class="z pad" points="57.35 105.93 45.7 105.93 37.47 114.16 37.47 125.8 45.7 134.04 57.35 134.04 65.58 125.8 65.58 114.16 57.35 105.93"/>
+          <polygon id="INDEX_A" class="ac pad" points="25.73 56.27 14.08 56.27 5.85 64.51 5.85 76.15 14.08 84.38 25.73 84.38 33.96 76.15 33.96 64.51 25.73 56.27"/>
+          <polygon id="INDEX_B" class="z pad" points="57.35 56.27 45.7 56.27 37.47 64.51 37.47 76.15 45.7 84.38 57.35 84.38 65.58 76.15 65.58 64.51 57.35 56.27"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- RIGHT: minimal controls (as you wanted: dropdowns only where triangle) -->
+    <div class="card">
+      <div class="row3">
+        <div><label>I AM USING THIS EXO PALM IN:</label>
+          <select id="hand"><option value="LEFT">LEFT HAND</option><option value="RIGHT">RIGHT HAND</option></select>
+        </div>
+        <div><label>PRESET</label>
+          <select id="preset">
+            <option value="0">PRESET 0</option>
+            <option value="1">PRESET 1</option>
+            <option value="2">PRESET 2</option>
+            <option value="3">PRESET 3</option>
+          </select>
+        </div>
+        <div><label>CH</label>
+          <select id="channel"></select>
+        </div>
+      </div>
+
+      <div class="row3" style="margin-top:8px">
+        <div><label>MODE</label><select id="mode"><option value="0">CC MODE</option><option value="1">NOTE MODE</option></select></div>
+        <div><label>SELECTOR CC (pinky-held)</label><input id="selcc" type="number" inputmode="numeric" min="0" max="127" value="102"></div>
+        <div></div>
+      </div>
+
+      <div class="hr"></div>
+      <div style="font-weight:700;margin-bottom:6px">TOUCH EDITOR <span id="touchBadge" class="pill">Tap a pad →</span></div>
+      <div class="row2">
+        <div><label>TARGET (finger)</label><input id="fingerName" disabled></div>
+        <div><label>RANGE</label>
+          <select id="rng"><option value="255">ON/OFF</option><option value="127">CONTINUOUS</option><option value="0">DISABLED</option></select>
+        </div>
+        <div><label>TOUCH CC</label><input id="tch" type="number" inputmode="numeric" min="0" max="127" value="19"></div>
+        <div><label>WRIST CC</label><input id="wr" type="number" inputmode="numeric" min="0" max="127" value="20"></div>
+        <div><label>ON RELEASE</label><select id="wrst"><option value="0">RESET TO 0</option><option value="64">RESET TO 64</option><option value="127" selected>RESET TO 127</option></select></div>
+        <div><label>ELBOW CC</label><input id="elb" type="number" inputmode="numeric" min="0" max="127" value="21"></div>
+        <div><label>ON RELEASE</label><select id="elrst"><option value="0">RESET TO 0</option><option value="64" selected>RESET TO 64</option><option value="127">RESET TO 127</option></select></div>
+      </div>
+
+      <div class="hr"></div>
+      <div class="mono" id="debug">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Fill channel dropdown 1..16
+  (function(){ const ch = document.getElementById('channel'); for(let i=1;i<=16;i++){ const o=document.createElement('option'); o.value=i; o.textContent=i; ch.appendChild(o);} ch.value=1; })();
+
+  const debug = (msg)=>document.getElementById('debug').textContent = String(msg);
+
+  // Helper: bind both touch and click
+  function bindTap(el, fn){
+    ['pointerdown','touchstart','click'].forEach(ev=>
+      el.addEventListener(ev, e=>{ e.preventDefault(); fn(e); }, {passive:false})
+    );
+  }
+
+  // Wire pads
+  const padIds = ['INDEX_A','INDEX_B','MIDDLE_A','MIDDLE_B','RING_A','RING_B','LITTLE_A','LITTLE_B'];
+  padIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el){ console.warn('Missing pad', id); return; }
+    el.classList.add('pad');
+    bindTap(el, ()=>{
+      // Visual select
+      document.querySelectorAll('.pad').forEach(p=>p.classList.remove('selected'));
+      el.classList.add('selected');
+      // Editor header
+      document.getElementById('fingerName').value = id.replace('_',' ');
+      document.getElementById('touchBadge').textContent = id.replace('_',' ');
+      debug('Pad: '+id+' tapped');
+    });
+  });
+
+  // Wire thumbs (preset)
+  const thumbs = [
+    ['THUMB_L', 1],
+    ['THUMB_M', 2],
+    ['THUMB_R', 3],
+  ];
+  function setThumbActive(preset){
+    document.querySelectorAll('.thumb').forEach(t=>t.classList.remove('active'));
+    if(preset>=1 && preset<=3){
+      const id = ['THUMB_L','THUMB_M','THUMB_R'][preset-1];
+      const el = document.getElementById(id);
+      if(el) el.classList.add('active');
+    }
+  }
+  thumbs.forEach(([id,p])=>{
+    const el = document.getElementById(id);
+    if(!el){ console.warn('Missing thumb', id); return; }
+    el.classList.add('thumb');
+    bindTap(el, ()=>{
+      document.getElementById('preset').value = String(p);
+      setThumbActive(p);
+      debug('Preset via thumb: '+p);
+    });
+  });
+
+  // Dropdown preset also controls thumb highlight (0 = none)
+  document.getElementById('preset').addEventListener('change', (e)=>{
+    const p = Number(e.target.value)||0;
+    setThumbActive(p);
+    debug('Preset via dropdown: '+p);
+  });
+
+  // Initial state: preset 0 (no thumb lit)
+  setThumbActive(0);
+  debug('Ready. Tap a pad or a top hex.');
+</script>
+</body>
+</html>
