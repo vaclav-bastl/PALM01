@@ -134,7 +134,7 @@ inline void sendCC_throttled(uint16_t cc, uint16_t value, uint8_t channel,
 // ---------- Mode/channel per preset ----------
 // 0 = CC mode (use MIDI_CHANNEL)
 // 1..16 = NOTE mode, and value is the MIDI channel for this preset.
-static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 };  // example: preset 2 is NOTE mode on ch 10
+static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 2 };  // example: preset 2 is NOTE mode on ch 1, preset 3 is NOTO on ch2
 
 // ---------- Preset-global CCs (matches palm_shared.h exactly) ----------
 uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
@@ -149,18 +149,62 @@ uint8_t presetGlobal[NUMBER_OF_PRESETS][4] = {
 // Per-finger mapping: Presets[finger][presetIndex][field]
 uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET] = {
   /* LITTLE_A */ {
-    { /*TCH_CC,RNG*/ 8, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 },
-    { /*TCH_CC,RNG*/ 8, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 },
-    { /*TCH_CC,RNG*/ 8, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 },
-    { /*TCH_CC,RNG*/ 8, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 } },
-  /* LITTLE_B */ { { /*TCH_CC,RNG*/ 7, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 }, { /*TCH_CC,RNG*/ 7, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 }, { /*TCH_CC,RNG*/ 7, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 }, { /*TCH_CC,RNG*/ 7, 255, /*WR_CC,RST*/ 255, 0, /*EL_CC,RST*/ 255, 0 } },
-  /* RING_A */ { { /*TCH_CC,RNG*/ 6, 255, /*WR_CC,RST*/ 38, 255, /*EL_CC,RST*/ 71, 0 }, { /*TCH_CC,RNG*/ 14, 255, /*WR_CC,RST*/ 46, 127, /*EL_CC,RST*/ 79, 0 }, { /*TCH_CC,RNG*/ 22, 255, /*WR_CC,RST*/ 54, 127, /*EL_CC,RST*/ 87, 0 }, { /*TCH_CC,RNG*/ 30, 255, /*WR_CC,RST*/ 62, 127, /*EL_CC,RST*/ 95, 0 } },
-  /* RING_B */ { { /*TCH_CC,RNG*/ 5, 255, /*WR_CC,RST*/ 37, 255, /*EL_CC,RST*/ 70, 0 }, { /*TCH_CC,RNG*/ 13, 255, /*WR_CC_RST*/ 45, 127, /*EL_CC,RST*/ 78, 0 }, { /*TCH_CC,RNG*/ 21, 255, /*WR_CC,RST*/ 53, 127, /*EL_CC,RST*/ 86, 0 }, { /*TCH_CC,RNG*/ 29, 255, /*WR_CC,RST*/ 61, 127, /*EL_CC,RST*/ 94, 0 } },
-  /* MIDDLE_A */ { { /*TCH_CC,RNG*/ 4, 255, /*WR_CC,RST*/ 36, 64, /*EL_CC,RST*/ 69, 0 }, { /*TCH_CC,RNG*/ 12, 127, /*WR_CC,RST*/ 44, 127, /*EL_CC,RST*/ 77, 0 }, { /*TCH_CC,RNG*/ 20, 255, /*WR_CC,RST*/ 52, 127, /*EL_CC,RST*/ 85, 0 }, { /*TCH_CC,RNG*/ 28, 255, /*WR_CC,RST*/ 60, 127, /*EL_CC,RST*/ 93, 0 } },
-  /* MIDDLE_B */ { { /*TCH_CC,RNG*/ 3, 255, /*WR_CC,RST*/ 35, 64, /*EL_CC,RST*/ 68, 0 }, { /*TCH_CC,RNG*/ 11, 255, /*WR_CC,RST*/ 43, 127, /*EL_CC,RST*/ 76, 0 }, { /*TCH_CC,RNG*/ 19, 255, /*WR_CC,RST*/ 51, 127, /*EL_CC,RST*/ 84, 0 }, { /*TCH_CC,RNG*/ 27, 255, /*WR_CC,RST*/ 59, 127, /*EL_CC,RST*/ 92, 0 } },
-  /* INDEX_A */ { { /*TCH_CC,RNG*/ 2, 255, /*WR_CC,RST*/ 34, 127, /*EL_CC,RST*/ 67, 0 }, { /*TCH_CC,RNG*/ 10, 255, /*WR_CC,RST*/ 42, 127, /*EL_CC,RST*/ 75, 0 }, { /*TCH_CC,RNG*/ 18, 255, /*WR_CC,RST*/ 50, 127, /*EL_CC,RST*/ 83, 0 }, { /*TCH_CC,RNG*/ 26, 255, /*WR_CC,RST*/ 58, 127, /*EL_CC,RST*/ 91, 0 } },
-  /* INDEX_B */ { { /*TCH_CC,RNG*/ 1, 255, /*WR_CC,RST*/ 33, 127, /*EL_CC,RST*/ 66, 0 }, { /*TCH_CC,RNG*/ 9, 255, /*WR_CC,RST*/ 41, 127, /*EL_CC,RST*/ 74, 0 }, { /*TCH_CC,RNG*/ 17, 255, /*WR_CC,RST*/ 49, 127, /*EL_CC,RST*/ 82, 0 }, { /*TCH_CC,RNG*/ 25, 255, /*WR_CC,RST*/ 57, 127, /*EL_CC,RST*/ 90, 0 } }
+    { /*TCH_CC,RNG*/  8,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 },
+    { /*TCH_CC,RNG*/  8,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 },
+    { /*TCH_CC,RNG*/  8,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 },
+    { /*TCH_CC,RNG*/  8,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 }
+  },
+
+  /* LITTLE_B */ {
+    { /*TCH_CC,RNG*/  7,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 },
+    { /*TCH_CC,RNG*/  7,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 },
+    { /*TCH_CC,RNG*/  7,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 },
+    { /*TCH_CC,RNG*/  7,255,  /*WR_CC,RST*/ 255,0,  /*EL_CC,RST*/ 255,0 }
+  },
+
+  /* RING_A */ {
+    { /*TCH_CC,RNG*/  6,255,  /*WR_CC,RST*/ 38,255, /*EL_CC,RST*/ 71,0 },
+    { /*TCH_CC,RNG*/ 14,255,  /*WR_CC,RST*/ 46,127, /*EL_CC,RST*/ 79,0 },
+    { /*TCH_CC,RNG*/ 22,255,  /*WR_CC,RST*/ 54,127, /*EL_CC,RST*/ 87,0 },
+    { /*TCH_CC,RNG*/ 30,255,  /*WR_CC,RST*/ 62,127, /*EL_CC,RST*/ 95,0 }
+  },
+
+  /* RING_B */ {
+    { /*TCH_CC,RNG*/  5,255,  /*WR_CC,RST*/ 37,255, /*EL_CC,RST*/ 70,0 },
+    { /*TCH_CC,RNG*/ 13,255,  /*WR_CC,RST*/ 45,127, /*EL_CC,RST*/ 78,0 },
+    { /*TCH_CC,RNG*/ 21,255,  /*WR_CC,RST*/ 53,127, /*EL_CC,RST*/ 86,0 },
+    { /*TCH_CC,RNG*/ 29,255,  /*WR_CC,RST*/ 61,127, /*EL_CC,RST*/ 94,0 }
+  },
+
+  /* MIDDLE_A */ {
+    { /*TCH_CC,RNG*/  4,255,  /*WR_CC,RST*/ 36, 64, /*EL_CC,RST*/ 69,0 },
+    { /*TCH_CC,RNG*/ 12,255,  /*WR_CC,RST*/ 44,127, /*EL_CC,RST*/ 77,0 },
+    { /*TCH_CC,RNG*/ 20,255,  /*WR_CC,RST*/ 52,127, /*EL_CC,RST*/ 85,0 },
+    { /*TCH_CC,RNG*/ 28,255,  /*WR_CC,RST*/ 60,127, /*EL_CC,RST*/ 93,0 }
+  },
+
+  /* MIDDLE_B */ {
+    { /*TCH_CC,RNG*/  3,255,  /*WR_CC,RST*/ 35, 64, /*EL_CC,RST*/ 68,0 },
+    { /*TCH_CC,RNG*/ 11,255,  /*WR_CC,RST*/ 43,127, /*EL_CC,RST*/ 76,0 },
+    { /*TCH_CC,RNG*/ 19,255,  /*WR_CC,RST*/ 51,127, /*EL_CC,RST*/ 84,0 },
+    { /*TCH_CC,RNG*/ 27,255,  /*WR_CC,RST*/ 59,127, /*EL_CC,RST*/ 92,0 }
+  },
+
+  /* INDEX_A */ {
+    { /*TCH_CC,RNG*/  2,255,  /*WR_CC,RST*/ 34,127, /*EL_CC,RST*/ 67,0 },
+    { /*TCH_CC,RNG*/ 10,255,  /*WR_CC,RST*/ 42,127, /*EL_CC,RST*/ 75,0 },
+    { /*TCH_CC,RNG*/ 18,255,  /*WR_CC,RST*/ 50,127, /*EL_CC,RST*/ 83,0 },
+    { /*TCH_CC,RNG*/ 26,255,  /*WR_CC,RST*/ 58,127, /*EL_CC,RST*/ 91,0 }
+  },
+
+  /* INDEX_B */ {
+    { /*TCH_CC,RNG*/  1,255,  /*WR_CC,RST*/ 33,127, /*EL_CC,RST*/ 66,0 },
+    { /*TCH_CC,RNG*/  9,255,  /*WR_CC,RST*/ 41,127, /*EL_CC,RST*/ 74,0 },
+    { /*TCH_CC,RNG*/ 17,255,  /*WR_CC,RST*/ 49,127, /*EL_CC,RST*/ 82,0 },
+    { /*TCH_CC,RNG*/ 25,255,  /*WR_CC,RST*/ 57,127, /*EL_CC,RST*/ 90,0 }
+  }
 };
+
 
 
 
@@ -485,16 +529,30 @@ void switchPresetSmart() {
   }
 
   // --- Always reset OLD preset's GLOBAL CCs on preset change (mode-agnostic) ---
+
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_WRIST) {
-    uint8_t occ = presetGlobal[lastPreset][G_WRIST_CC];
+    uint8_t occ  = presetGlobal[lastPreset][G_WRIST_CC];
     uint8_t oset = presetGlobal[lastPreset][G_WRIST_RESET];
-    if (!ccDisabled(occ)) sendCC_immediate(occ, oset, lastCh);
+    if (!ccDisabled(occ) && oset != 255) {
+      sendCC_immediate(occ, oset, lastCh);
+    }
   }
   if (mappingMode == NOT_MAPPING || mappingMode == MAP_ELBOW) {
-    uint8_t occ = presetGlobal[lastPreset][G_ELBOW_CC];
+    uint8_t occ  = presetGlobal[lastPreset][G_ELBOW_CC];
     uint8_t oset = presetGlobal[lastPreset][G_ELBOW_RESET];
     if (!ccDisabled(occ) && oset != 255) {
       sendCC_immediate(occ, oset, lastCh);
+    }
+  }
+
+   // --- If we are ENTERING NOTE mode, force-reset all old preset TOUCH CCs to 0
+  if (isNotePreset(currentPreset) && !isNotePreset(lastPreset)) {
+    for (uint8_t i = 0; i < NUMBER_OF_FINGERS; ++i) {
+      TouchSpec oldT = getTouchSpec(i, lastPreset);
+      if (oldT.enabled) {
+        // Touch has no "reset=255" concept; always zero it when leaving CC-land
+        sendCC_immediate(oldT.cc, 0, lastCh);
+      }
     }
   }
 
@@ -812,7 +870,7 @@ void loop() {
   handleButtons();
   handleThumb();
   handleContext();
-  printTouchVelocity();
+ // printTouchVelocity();
 
 
   midiRead();

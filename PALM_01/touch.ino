@@ -197,7 +197,7 @@ void printTouchVelocity(){
 }
 
 long getTouchVelocity(uint8_t touchPoint){
-  return map(calibratedTouchValue[touchPoint], 1,60,1,127);
+  return constrain(map(calibratedTouchValue[touchPoint], 1,60,1,127),1,127);
 
 }
 void printTouchSensors() {
