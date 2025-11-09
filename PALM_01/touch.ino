@@ -191,7 +191,15 @@ void printTouchedSensors() {
   for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++)
     if (justTouched[i]) Serial.println(i);
 }
+void printTouchVelocity(){
+  for (uint8_t i = 0; i < NUMBER_OF_TOUCHPOINTS; i++)
+    if (justTouched[i]) Serial.println(getTouchVelocity(i));
+}
 
+long getTouchVelocity(uint8_t touchPoint){
+  return map(calibratedTouchValue[touchPoint], 1,60,1,127);
+
+}
 void printTouchSensors() {
   //Serial.println(numberOfTouchedPoints);
   Serial.print("raw:    ");
