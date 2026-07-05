@@ -184,6 +184,10 @@ void sendPitchBend(int16_t bend, uint8_t channel) {
 // ---- Connection param retry ----
 static uint16_t g_connHandle = 0;
 
+// Reconnect-advertising scheduler state (see bleAdvTick below)
+static uint32_t bleAdvPhaseMs = 0;
+static bool bleAdvDirected = false;
+
 static void requestFastParamsRetry(void* /*pv*/) {
   vTaskDelay(pdMS_TO_TICKS(300));
   if (g_connHandle) {
@@ -231,9 +235,9 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
     Serial.println("Client disconnected");
 #endif
 #ifdef USE_ESPNOW_MIDI
-    if (!espnowLinked) NimBLEDevice::startAdvertising();  // ESP-NOW active: stay quiet
+    if (!espnowLinked) { bleAdvPhaseMs = 0; bleAdvDirected = false; }  // bleAdvTick restarts advertising
 #else
-    NimBLEDevice::startAdvertising();
+    bleAdvPhaseMs = 0; bleAdvDirected = false;  // bleAdvTick restarts advertising
 #endif
   }
 };
@@ -299,6 +303,35 @@ void bleMidiInit() {
 #endif
 }
 
+// ---- WIDI-style reconnect advertising ----
+// While bonded and disconnected, alternate DIRECTED advertising at the
+// bonded central (radio-level auto-reconnect, invisible to scans -- the
+// same trick keyboards and the CME WIDI use) with normal undirected
+// advertising (so Bluetooth MIDI panels can still discover us).
+static void bleAdvTick() {
+  if (bleConnected) return;
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  uint32_t now = millis();
+  if (NimBLEDevice::getNumBonds() == 0) {
+    if (!adv->isAdvertising()) adv->start();
+    return;
+  }
+  // bonded: 8 s directed burst, then 4 s undirected, repeat
+  uint32_t phaseLen = bleAdvDirected ? 8000 : 4000;
+  if (adv->isAdvertising() && now - bleAdvPhaseMs < phaseLen) return;
+  adv->stop();
+  bleAdvDirected = !bleAdvDirected;
+  bleAdvPhaseMs = now;
+  if (bleAdvDirected) {
+    NimBLEAddress peer = NimBLEDevice::getBondedAddress(0);
+    bool ok = adv->start(0, &peer);
+    static bool logged = false;
+    if (!logged) { logged = true; Serial.printf("ble: directed adv to %s -> %s\n", peer.toString().c_str(), ok ? "started" : "REFUSED"); }
+  } else {
+    adv->start();
+  }
+}
+
 // ---- ESP-NOW fallback arbitration (called from espnow.ino) ----
 static bool bleStackStarted = false;
 
@@ -362,6 +395,7 @@ void midiRead() {
 void midiDispatch() {
 #ifdef USE_BLE_MIDI
   bleFlushMidiBuffer();
+  bleAdvTick();
 #endif
 #ifdef USE_ESPNOW_MIDI
   espnowLoop();
