@@ -201,7 +201,8 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer*, NimBLEConnInfo& ci) override {
     bleConnected = true;
     g_connHandle = ci.getConnHandle();
-    Serial.printf("ble: central connected (%s)\n", ci.getAddress().toString().c_str());
+    Serial.printf("ble: central connected (%s), interval %.2f ms\n",
+                  ci.getAddress().toString().c_str(), ci.getConnInterval() * 1.25f);
 #ifdef USE_DEBUG
     Serial.printf("Conn: itvl=%.2fms, lat=%u, supTO=%.1fs, handle=%u\n",
                   ci.getConnInterval() * 1.25f,
@@ -222,6 +223,12 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
   void onAuthenticationComplete(NimBLEConnInfo& ci) override {
     Serial.printf("ble: auth complete: encrypted=%d authenticated=%d bonded=%d\n",
                   ci.isEncrypted(), ci.isAuthenticated(), ci.isBonded());
+  }
+
+  void onConnParamsUpdate(NimBLEConnInfo& ci) override {
+    Serial.printf("ble: conn params now: interval %.2f ms, latency %u, timeout %.1f s\n",
+                  ci.getConnInterval() * 1.25f, ci.getConnLatency(),
+                  ci.getConnTimeout() * 10.0f / 1000.0f);
   }
 
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
