@@ -254,7 +254,7 @@ void bleMidiInit() {
   // Fresh static-random address: macOS caches GATT structure per address,
   // and this device's GATT changed several times during development --
   // a new identity sidesteps every stale cache on every Mac.
-  static const uint8_t ownAddr[6] = { 0x08, 0x20, 0x26, 0x3C, 0x9E, 0xCE };  // CE:9E:3C:26:20:08
+  static const uint8_t ownAddr[6] = { 0x0A, 0x20, 0x26, 0x3C, 0x9E, 0xCE };  // CE:9E:3C:26:20:0A
   NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
   NimBLEDevice::setOwnAddr(ownAddr);
   Serial.printf("ble: %d bond(s) stored, addr %s\n", NimBLEDevice::getNumBonds(),
@@ -295,10 +295,10 @@ void bleMidiInit() {
   // device data MIDIServer's table shows populated for it (mimicry test:
   // exact CME strings; if auto-connect starts working, bisect later)
   NimBLEService* dis = server->createService("180A");
-  dis->createCharacteristic("2A29", NIMBLE_PROPERTY::READ)->setValue("CME");
-  dis->createCharacteristic("2A24", NIMBLE_PROPERTY::READ)->setValue("CME WIDI Jack");
-  dis->createCharacteristic("2A26", NIMBLE_PROPERTY::READ)->setValue("0137");
-  dis->createCharacteristic("2A27", NIMBLE_PROPERTY::READ)->setValue("0002");
+  dis->createCharacteristic("2A29", NIMBLE_PROPERTY::READ)->setValue("Bastl Instruments");
+  dis->createCharacteristic("2A24", NIMBLE_PROPERTY::READ)->setValue("PALM");
+  dis->createCharacteristic("2A26", NIMBLE_PROPERTY::READ)->setValue("0001");
+  dis->createCharacteristic("2A27", NIMBLE_PROPERTY::READ)->setValue("0001");
   dis->start();
 
   // WIDI-mimicry advertisement: manufacturer data + MIDI service UUID,
@@ -308,11 +308,11 @@ void bleMidiInit() {
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   NimBLEAdvertisementData advData;
   advData.setFlags(0x06);
-  advData.setManufacturerData(std::string("\x08\x25\x0b", 3));
+  advData.setManufacturerData(std::string("\xff\xff\x01", 3));  // 0xFFFF = SIG test ID
   advData.setCompleteServices(NimBLEUUID(MIDI_SERVICE_UUID));
   adv->setAdvertisementData(advData);
   NimBLEAdvertisementData rsp;
-  rsp.setCompleteServices16({ NimBLEUUID((uint16_t)0xFFD0) });
+  rsp.setName(BLE_DEVICE_NAME);  // panel shows the name pre-connect; exohub binds ports by it
   adv->setScanResponseData(rsp);
   adv->start();
 
