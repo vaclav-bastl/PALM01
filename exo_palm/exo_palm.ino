@@ -37,7 +37,8 @@
 // Transports. With BOTH radio transports defined: ESP-NOW is primary;
 // if no receiver answers within 5 s the controller starts advertising
 // as a BLE MIDI device. Whichever link connects first wins.
-#define USE_ESPNOW_MIDI  // custom link to the wirelessToUSBmidi receiver
+// BRANCH ble-pin-pairing: BLE-primary build for testing Mac PIN pairing
+//#define USE_ESPNOW_MIDI  // custom link to the wirelessToUSBmidi receiver
 #define USE_BLE_MIDI     // BLE MIDI fallback (or primary if ESPNOW disabled)
 #define USE_SERIAL_MIDI  // hardware MIDI on Serial1
 // #define USE_USB_MIDI
@@ -291,6 +292,10 @@ void handleButtons() {
   if (bleConnected && justPressed[BUTTON_L]) {
     mappingMode++;
     if (mappingMode > 3) mappingMode = 0;
+  }
+  // pairing experiment: BUTTON_L while disconnected wipes all BLE bonds
+  if (!bleConnected && justPressed[BUTTON_L]) {
+    bleWipeBonds();
   }
   if (justPressed[BUTTON_R]) {
     adverstiseBle();  // manual BLE advertising (starts the stack if needed)

@@ -212,6 +212,15 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
     xTaskCreatePinnedToCore(requestFastParamsRetry, "bleFastRetry", 2048, nullptr, 1, nullptr, 0);
   }
 
+  void onAuthenticationComplete(NimBLEConnInfo& ci) override {
+    Serial.printf("ble: auth complete: encrypted=%d authenticated=%d bonded=%d\n",
+                  ci.isEncrypted(), ci.isAuthenticated(), ci.isBonded());
+    if (!ci.isEncrypted()) {
+      Serial.println("ble: pairing failed/skipped -- disconnecting");
+      NimBLEDevice::getServer()->disconnect(ci.getConnHandle());
+    }
+  }
+
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
     bleConnected = false;
     g_connHandle = 0;
@@ -226,13 +235,24 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
   }
 };
 
+// Pairing experiment helper: wipe stored bonds (BUTTON_L while disconnected)
+void bleWipeBonds() {
+  int n = NimBLEDevice::getNumBonds();
+  NimBLEDevice::deleteAllBonds();
+  Serial.printf("ble: wiped %d bond(s) -- also remove PALM_03 on the Mac\n", n);
+}
+
 void bleMidiInit() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
+  Serial.printf("ble: %d bond(s) stored\n", NimBLEDevice::getNumBonds());
 
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   NimBLEDevice::setMTU(185);
 
-  NimBLEDevice::setSecurityAuth(true, true, false);
+  // Bonding + MITM + Secure Connections: with the characteristic below
+  // requiring authentication, macOS must pair and shows the passkey
+  // dialog (enter 123456); the bond then auto-reconnects.
+  NimBLEDevice::setSecurityAuth(true, true, true);
   NimBLEDevice::setSecurityPasskey(123456);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
@@ -240,9 +260,16 @@ void bleMidiInit() {
   server->setCallbacks(new MyServerCallbacks());
 
   NimBLEService* service = server->createService(MIDI_SERVICE_UUID);
+  // _ENC/_AUTHEN flags are what force macOS to actually pair: it reads
+  // this characteristic on connect (per Apple's BLE MIDI spec), gets an
+  // insufficient-authentication error, and starts the passkey flow.
+  // Without them the old firmware connected unencrypted -- no PIN ever.
   pMidiCharacteristic = service->createCharacteristic(
     MIDI_CHARACTERISTIC_UUID,
-    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::NOTIFY);
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN |
+    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR |
+    NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN |
+    NIMBLE_PROPERTY::NOTIFY);
 
   pMidiCharacteristic->createDescriptor("2902", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
   NimBLEDescriptor* reportRefDesc = pMidiCharacteristic->createDescriptor("2908", NIMBLE_PROPERTY::READ);
