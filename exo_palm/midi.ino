@@ -200,6 +200,7 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer*, NimBLEConnInfo& ci) override {
     bleConnected = true;
     g_connHandle = ci.getConnHandle();
+    Serial.printf("ble: central connected (%s)\n", ci.getAddress().toString().c_str());
 #ifdef USE_DEBUG
     Serial.printf("Conn: itvl=%.2fms, lat=%u, supTO=%.1fs, handle=%u\n",
                   ci.getConnInterval() * 1.25f,
@@ -212,18 +213,20 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
     xTaskCreatePinnedToCore(requestFastParamsRetry, "bleFastRetry", 2048, nullptr, 1, nullptr, 0);
   }
 
+  void onConfirmPassKey(NimBLEConnInfo& ci, uint32_t pin) override {
+    Serial.printf("ble: numeric comparison code %06lu -> auto-confirm\n", (unsigned long)pin);
+    NimBLEDevice::injectConfirmPasskey(ci, true);
+  }
+
   void onAuthenticationComplete(NimBLEConnInfo& ci) override {
     Serial.printf("ble: auth complete: encrypted=%d authenticated=%d bonded=%d\n",
                   ci.isEncrypted(), ci.isAuthenticated(), ci.isBonded());
-    if (!ci.isEncrypted()) {
-      Serial.println("ble: pairing failed/skipped -- disconnecting");
-      NimBLEDevice::getServer()->disconnect(ci.getConnHandle());
-    }
   }
 
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
     bleConnected = false;
     g_connHandle = 0;
+    Serial.printf("ble: central disconnected (reason %d)\n", reason);
 #ifdef USE_DEBUG
     Serial.println("Client disconnected");
 #endif
@@ -244,31 +247,37 @@ void bleWipeBonds() {
 
 void bleMidiInit() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
-  Serial.printf("ble: %d bond(s) stored\n", NimBLEDevice::getNumBonds());
+  // Fresh static-random address: macOS caches GATT structure per address,
+  // and this device's GATT changed several times during development --
+  // a new identity sidesteps every stale cache on every Mac.
+  static const uint8_t ownAddr[6] = { 0x07, 0x20, 0x26, 0x3C, 0x9E, 0xCE };  // CE:9E:3C:26:20:07
+  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
+  NimBLEDevice::setOwnAddr(ownAddr);
+  Serial.printf("ble: %d bond(s) stored, addr %s\n", NimBLEDevice::getNumBonds(),
+                NimBLEDevice::getAddress().toString().c_str());
 
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   NimBLEDevice::setMTU(185);
 
-  // Bonding + MITM + Secure Connections: with the characteristic below
-  // requiring authentication, macOS must pair and shows the passkey
-  // dialog (enter 123456); the bond then auto-reconnects.
-  NimBLEDevice::setSecurityAuth(true, true, true);
-  NimBLEDevice::setSecurityPasskey(123456);
-  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
+  // Match the reference WIDI Jack: BOND but "just works" (no MITM), no
+  // auth prompt. macOS 13.5+ auto-reconnects a known BLE-MIDI device on
+  // this basis; forcing authentication fought that and caused the
+  // connect/drop/retry loop.
+  NimBLEDevice::setSecurityAuth(true, false, true);  // bond, noMITM, SC
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(new MyServerCallbacks());
 
   NimBLEService* service = server->createService(MIDI_SERVICE_UUID);
-  // _ENC/_AUTHEN flags are what force macOS to actually pair: it reads
-  // this characteristic on connect (per Apple's BLE MIDI spec), gets an
-  // insufficient-authentication error, and starts the passkey flow.
-  // Without them the old firmware connected unencrypted -- no PIN ever.
+  // Encryption-required (but NOT authentication-required): macOS must
+  // pair to read this, and with no-MITM the pairing is silent "just
+  // works" -- no dialog -- producing the bond + paired-registry entry
+  // that macOS 13.5+ auto-reconnect keys off.
   pMidiCharacteristic = service->createCharacteristic(
     MIDI_CHARACTERISTIC_UUID,
-    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN |
-    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR |
-    NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN |
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC |
+    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
     NIMBLE_PROPERTY::NOTIFY);
 
   pMidiCharacteristic->createDescriptor("2902", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
@@ -328,7 +337,7 @@ void adverstiseBle() {}
 void initMidi() {
 #ifdef USE_BLE_MIDI
 #ifndef USE_ESPNOW_MIDI
-  bleMidiInit();  // BLE is the primary transport
+  bleFallbackStart();  // BLE is the primary transport (sets bleStackStarted)
 #endif
   // with ESP-NOW enabled, BLE starts later as fallback (see espnow.ino)
 #endif
