@@ -145,10 +145,7 @@ static void espnowQueueMIDIMessage(const uint8_t* data, uint8_t len) {
   espnowQueuePacket(PKT_MIDI, data, len);
 }
 
-static volatile uint32_t dbgRxCount = 0;
-
 static void espnowOnRecv(const uint8_t* srcMac, const uint8_t* data, int len) {
-  dbgRxCount++;
   if (len < 4) return;
   const EspNowPacket* p = (const EspNowPacket*)data;
   if (p->magic != ESPNOW_MAGIC) return;
@@ -205,16 +202,6 @@ static void espnowOnRecv(const uint8_t* srcMac, const uint8_t* data, int len) {
 }
 
 static void espnowOnSent(const uint8_t* dstMac, bool ok) {
-  if (memcmp(dstMac, broadcastMac, 6) == 0) {
-    static uint32_t lastBcPrint = 0;
-    if (millis() - lastBcPrint >= 5000) {
-      lastBcPrint = millis();
-      uint8_t ch = 0; wifi_second_chan_t sc;
-      esp_wifi_get_channel(&ch, &sc);
-      Serial.printf("espnow: bcast tx %s (wifi ch=%u)\n", ok ? "OK" : "FAIL", ch);
-    }
-    return;
-  }
   if (memcmp(dstMac, peerMac, 6) != 0) return;
   portENTER_CRITICAL(&espnowMux);
   txFailed = !ok;
@@ -297,8 +284,7 @@ static void espnowLoop() {
       static uint32_t lastSearchPrint = 0;
       if (now - lastSearchPrint >= 5000) {
         lastSearchPrint = now;
-        Serial.printf("espnow: searching (ping err=%d, rx heard=%lu)\n",
-                      (int)e, (unsigned long)dbgRxCount);
+        Serial.printf("espnow: searching (ping err=%d)\n", (int)e);
       }
     }
     return;

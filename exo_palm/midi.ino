@@ -184,9 +184,6 @@ void sendPitchBend(int16_t bend, uint8_t channel) {
 // ---- Connection param retry ----
 static uint16_t g_connHandle = 0;
 
-// Reconnect-advertising scheduler state (see bleAdvTick below)
-static uint32_t bleAdvPhaseMs = 0;
-static bool bleAdvDirected = false;
 
 static void requestFastParamsRetry(void* /*pv*/) {
   vTaskDelay(pdMS_TO_TICKS(300));
@@ -234,11 +231,7 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
 #ifdef USE_DEBUG
     Serial.println("Client disconnected");
 #endif
-#ifdef USE_ESPNOW_MIDI
-    if (!espnowLinked) { bleAdvPhaseMs = 0; bleAdvDirected = false; }  // bleAdvTick restarts advertising
-#else
-    bleAdvPhaseMs = 0; bleAdvDirected = false;  // bleAdvTick restarts advertising
-#endif
+    // bleAdvTick restarts advertising when appropriate
   }
 };
 
@@ -327,11 +320,13 @@ void bleMidiInit() {
 // same trick keyboards and the CME WIDI use) with normal undirected
 // advertising (so Bluetooth MIDI panels can still discover us).
 static void bleAdvTick() {
-  // Plain continuous undirected advertising, exactly like the WIDI Jack:
-  // captured on air, its reconnect is just an ordinary advertisement that
-  // macOS answers within ~2 s for a bonded+registered device. The directed
-  // advertising experiment made us invisible 2/3 of the time -- removed.
+  // Plain continuous undirected advertising (WIDI-style: macOS answers a
+  // bonded device's ordinary advertisement within ~2 s). Quiet while the
+  // ESP-NOW receiver holds the link -- ESP-NOW has priority.
   if (bleConnected) return;
+#ifdef USE_ESPNOW_MIDI
+  if (espnowLinked) return;
+#endif
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   if (!adv->isAdvertising()) adv->start();
 }
