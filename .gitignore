@@ -2,3 +2,4 @@
 exo_palm/build/
 exo_palm/compile_commands.json
 .DS_Store
+tools/ble-midi-autoconnect/ble-midi-autoconnect
