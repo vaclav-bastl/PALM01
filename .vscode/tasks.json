@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "exo_palm: compile",
+      "type": "shell",
+      "command": "arduino-cli compile .",
+      "options": { "cwd": "${workspaceFolder}/exo_palm" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "exo_palm: upload",
+      "type": "shell",
+      "command": "arduino-cli compile . && arduino-cli upload .",
+      "options": { "cwd": "${workspaceFolder}/exo_palm" },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "exo_palm: serial monitor",
+      "type": "shell",
+      "command": "arduino-cli monitor -c baudrate=115200 .",
+      "options": { "cwd": "${workspaceFolder}/exo_palm" },
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

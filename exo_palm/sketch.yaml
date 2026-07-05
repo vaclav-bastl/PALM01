@@ -1,0 +1,2 @@
+default_fqbn: esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,PSRAM=disabled,CPUFreq=240
+default_port: /dev/cu.usbmodem11101
