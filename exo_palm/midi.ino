@@ -254,7 +254,7 @@ void bleMidiInit() {
   // Fresh static-random address: macOS caches GATT structure per address,
   // and this device's GATT changed several times during development --
   // a new identity sidesteps every stale cache on every Mac.
-  static const uint8_t ownAddr[6] = { 0x07, 0x20, 0x26, 0x3C, 0x9E, 0xCE };  // CE:9E:3C:26:20:07
+  static const uint8_t ownAddr[6] = { 0x08, 0x20, 0x26, 0x3C, 0x9E, 0xCE };  // CE:9E:3C:26:20:08
   NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
   NimBLEDevice::setOwnAddr(ownAddr);
   Serial.printf("ble: %d bond(s) stored, addr %s\n", NimBLEDevice::getNumBonds(),
@@ -281,8 +281,8 @@ void bleMidiInit() {
   pMidiCharacteristic = service->createCharacteristic(
     MIDI_CHARACTERISTIC_UUID,
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC |
-    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
-    NIMBLE_PROPERTY::NOTIFY);
+    NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
+    NIMBLE_PROPERTY::NOTIFY);  // props match the WIDI: Read+WriteNR+Notify
 
   pMidiCharacteristic->createDescriptor("2902", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
   NimBLEDescriptor* reportRefDesc = pMidiCharacteristic->createDescriptor("2908", NIMBLE_PROPERTY::READ);
@@ -291,11 +291,29 @@ void bleMidiInit() {
 
   service->start();
 
+  // Device Information Service -- the WIDI carries one and it is the only
+  // device data MIDIServer's table shows populated for it (mimicry test:
+  // exact CME strings; if auto-connect starts working, bisect later)
+  NimBLEService* dis = server->createService("180A");
+  dis->createCharacteristic("2A29", NIMBLE_PROPERTY::READ)->setValue("CME");
+  dis->createCharacteristic("2A24", NIMBLE_PROPERTY::READ)->setValue("CME WIDI Jack");
+  dis->createCharacteristic("2A26", NIMBLE_PROPERTY::READ)->setValue("0137");
+  dis->createCharacteristic("2A27", NIMBLE_PROPERTY::READ)->setValue("0002");
+  dis->start();
+
+  // WIDI-mimicry advertisement: manufacturer data + MIDI service UUID,
+  // NO local name on the air (name via GATT after connect); 16-bit FFD0
+  // service in the scan response. Branch experiment -- the exohub's
+  // name-in-scan-response advertising is bypassed here.
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(MIDI_SERVICE_UUID);
-  adv->setAppearance(0x03C0);
-  adv->enableScanResponse(true);  // must precede setName: adv payload is full (128-bit UUID)
-  adv->setName(BLE_DEVICE_NAME);  // receiver binds ports by this name; lands in the scan response
+  NimBLEAdvertisementData advData;
+  advData.setFlags(0x06);
+  advData.setManufacturerData(std::string("\x08\x25\x0b", 3));
+  advData.setCompleteServices(NimBLEUUID(MIDI_SERVICE_UUID));
+  adv->setAdvertisementData(advData);
+  NimBLEAdvertisementData rsp;
+  rsp.setCompleteServices16({ NimBLEUUID((uint16_t)0xFFD0) });
+  adv->setScanResponseData(rsp);
   adv->start();
 
 #ifdef USE_DEBUG
@@ -309,27 +327,13 @@ void bleMidiInit() {
 // same trick keyboards and the CME WIDI use) with normal undirected
 // advertising (so Bluetooth MIDI panels can still discover us).
 static void bleAdvTick() {
+  // Plain continuous undirected advertising, exactly like the WIDI Jack:
+  // captured on air, its reconnect is just an ordinary advertisement that
+  // macOS answers within ~2 s for a bonded+registered device. The directed
+  // advertising experiment made us invisible 2/3 of the time -- removed.
   if (bleConnected) return;
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  uint32_t now = millis();
-  if (NimBLEDevice::getNumBonds() == 0) {
-    if (!adv->isAdvertising()) adv->start();
-    return;
-  }
-  // bonded: 8 s directed burst, then 4 s undirected, repeat
-  uint32_t phaseLen = bleAdvDirected ? 8000 : 4000;
-  if (adv->isAdvertising() && now - bleAdvPhaseMs < phaseLen) return;
-  adv->stop();
-  bleAdvDirected = !bleAdvDirected;
-  bleAdvPhaseMs = now;
-  if (bleAdvDirected) {
-    NimBLEAddress peer = NimBLEDevice::getBondedAddress(0);
-    bool ok = adv->start(0, &peer);
-    static bool logged = false;
-    if (!logged) { logged = true; Serial.printf("ble: directed adv to %s -> %s\n", peer.toString().c_str(), ok ? "started" : "REFUSED"); }
-  } else {
-    adv->start();
-  }
+  if (!adv->isAdvertising()) adv->start();
 }
 
 // ---- ESP-NOW fallback arbitration (called from espnow.ino) ----
