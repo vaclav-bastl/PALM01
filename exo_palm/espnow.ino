@@ -258,6 +258,11 @@ static void espnowLoop() {
     }
     portEXIT_CRITICAL(&espnowMux);
     if (!blen) break;
+    // configurator SysEx streams in chunks; everything else is channel voice
+    if (sysexActive() || buf[0] == 0xF0) {
+      sysexFeed(buf, blen, 1 /* SX_SRC_ESPNOW */);
+      continue;
+    }
     uint8_t i = 0;
     while (i < blen) {
       uint8_t status = buf[i];

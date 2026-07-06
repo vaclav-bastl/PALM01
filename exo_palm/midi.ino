@@ -249,6 +249,15 @@ void bleWipeBonds() {
   Serial.printf("ble: wiped %d bond(s) -- also remove PALM_03 on the Mac\n", n);
 }
 
+// Incoming BLE MIDI (configurator SysEx + light CCs) -> sysex.ino router
+class MidiCharCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
+    NimBLEAttValue v = c->getValue();
+    if (v.size() < 2) return;
+    palmBleMidiRx(v.data(), (uint16_t)v.size());
+  }
+};
+
 void bleMidiInit() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
   // Fresh static-random address: macOS caches GATT structure per address,
@@ -284,6 +293,7 @@ void bleMidiInit() {
     NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
     NIMBLE_PROPERTY::NOTIFY);  // props match the WIDI: Read+WriteNR+Notify
 
+  pMidiCharacteristic->setCallbacks(new MidiCharCallbacks());
   pMidiCharacteristic->createDescriptor("2902", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
   NimBLEDescriptor* reportRefDesc = pMidiCharacteristic->createDescriptor("2908", NIMBLE_PROPERTY::READ);
   uint8_t reportRef[] = { 0x01, 0x03 };

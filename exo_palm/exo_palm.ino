@@ -43,14 +43,17 @@
 // #define USE_USB_MIDI
 //#define USE_DEBUG
 
-const char* BLE_DEVICE_NAME = "PALM_03";
+// Device name: default here; overridden from NVS by configLoad(). Drives
+// BLE advertising and the ESP-NOW port-name announce; changes apply on reboot.
+char bleDeviceName[17] = "PALM_03";
+const char* BLE_DEVICE_NAME = bleDeviceName;
 #define NEO_PIXEL_PIN D2
 
 // Fixed velocity for the first note in NOTE mode
 #define NOTE_FIRST_VELOCITY 64
 
-// Default channel used when a preset is in CC mode (presetMode == 0)
-const uint8_t MIDI_CHANNEL = 1;  // 1..16
+// Channel used when a preset is in CC mode (presetMode == 0); NVS-backed
+uint8_t MIDI_CHANNEL = 1;  // 1..16
 
 #ifdef USE_ESPNOW_MIDI
 extern bool espnowLinked;  // defined in espnow.ino
@@ -174,6 +177,9 @@ inline void sendCC_throttled(uint16_t cc, uint16_t value, uint8_t channel,
 // =====================================================
 // PRESETS
 // =====================================================
+// NOTE: all preset tables below are FIRST-BOOT DEFAULTS. The live values
+// are loaded from NVS at boot (config.ino) and edited via the configurator
+// (sysex.ino) -- editing these arrays only affects a factory-fresh device.
 // Mode/channel per preset: 0 = CC mode (uses MIDI_CHANNEL),
 // 1..16 = NOTE mode on that MIDI channel.
 static uint8_t presetMode[NUMBER_OF_PRESETS] = { 0, 0, 1, 0 };
@@ -334,6 +340,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("start");
+  configLoad();  // overwrite the preset tables + device name from NVS
   initHw();
   initMidi();
   initCcTracking();
