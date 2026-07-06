@@ -288,15 +288,25 @@ uint8_t mappingMode = 0;
 #define MAP_TOUCH 3
 
 void handleButtons() {
-  if (bleConnected && justPressed[BUTTON_L]) {
+  // LEFT: tap cycles the mapping mode (any link state); hold 5 s wipes
+  // BLE bonds (pairing reset -- rare service gesture)
+  static uint32_t lPressTime = 0;
+  static bool lWiped = false;
+  if (justPressed[BUTTON_L]) {
     mappingMode++;
     if (mappingMode > 3) mappingMode = 0;
+    Serial.printf("button L: mapping mode %u\n", mappingMode);
+    lPressTime = millis();
+    lWiped = false;
   }
-  // pairing experiment: BUTTON_L while disconnected wipes all BLE bonds
-  if (!bleConnected && justPressed[BUTTON_L]) {
+  if (buttonState[BUTTON_L] && !lWiped && millis() - lPressTime > 5000) {
+    lWiped = true;
     bleWipeBonds();
   }
+
+  // RIGHT: tap starts BLE advertising; hold 3 s sleeps
   if (justPressed[BUTTON_R]) {
+    Serial.println("button R: advertise");
     adverstiseBle();  // manual BLE advertising (starts the stack if needed)
     longPressTime = millis();
   }
