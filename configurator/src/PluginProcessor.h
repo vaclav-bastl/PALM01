@@ -14,14 +14,28 @@ public:
 
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
-    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}  // passthrough
+
+    // Audio passthrough; injects editor-queued MIDI (the DIN icon clicks)
+    // into the host stream so DAW MIDI-learn can see the mapped messages.
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer& midi) override {
+        const juce::ScopedLock sl(midiOutLock);
+        if (!pendingMidiOut.isEmpty()) {
+            midi.addEvents(pendingMidiOut, 0, -1, 0);
+            pendingMidiOut.clear();
+        }
+    }
+
+    void queueMidiOut(const juce::MidiMessage& m) {
+        const juce::ScopedLock sl(midiOutLock);
+        pendingMidiOut.addEvent(m, 0);
+    }
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "exoPALM"; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
     int getNumPrograms() override { return 1; }
@@ -42,5 +56,8 @@ public:
     palm::Config lastConfig;    // editor keeps this in sync
 
 private:
+    juce::CriticalSection midiOutLock;
+    juce::MidiBuffer pendingMidiOut;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExoPalmProcessor)
 };

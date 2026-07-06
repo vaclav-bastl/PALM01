@@ -39,6 +39,7 @@ public:
     void saveToDevice()              { send(palm::buildSave()); }
     void setName(const juce::String& n) { send(palm::buildSetName(n.toStdString())); }
     void revert()                    { send(palm::buildRevert()); }
+    void setEditMode(bool on)        { send(palm::buildEditMode(on)); }
 
 private:
     void send(const std::vector<uint8_t>& bytes);

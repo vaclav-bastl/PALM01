@@ -76,6 +76,7 @@ static inline void bleQueueMIDIMessage(const uint8_t* data, size_t len) {
 #endif
 
 void sendNoteOn(uint8_t note, uint8_t velocity, uint8_t channel) {
+  if (sysexEditMute) return;  // "edit only output" active
 #ifdef USE_BLE_MIDI
   uint8_t msg[] = { uint8_t(0x90 | ((channel - 1) & 0x0F)), note, velocity };
   bleQueueMIDIMessage(msg, 3);
@@ -93,6 +94,7 @@ void sendNoteOn(uint8_t note, uint8_t velocity, uint8_t channel) {
 }
 
 void sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel) {
+  if (sysexEditMute) return;  // "edit only output" active
 #ifdef USE_BLE_MIDI
   uint8_t msg[] = { uint8_t(0x80 | ((channel - 1) & 0x0F)), note, velocity };
   bleQueueMIDIMessage(msg, 3);
@@ -110,6 +112,7 @@ void sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel) {
 }
 
 void sendControlChange(uint8_t number, uint8_t value, uint8_t channel) {
+  if (sysexEditMute) return;  // "edit only output" active
   outputCCValue[number] = value;
 #ifdef USE_BLE_MIDI
   uint8_t msg[] = { uint8_t(0xB0 | ((channel - 1) & 0x0F)), number, value };
@@ -128,6 +131,7 @@ void sendControlChange(uint8_t number, uint8_t value, uint8_t channel) {
 }
 
 void sendProgramChange(uint8_t program, uint8_t channel) {
+  if (sysexEditMute) return;  // "edit only output" active
 #ifdef USE_BLE_MIDI
   uint8_t msg[] = { uint8_t(0xC0 | ((channel - 1) & 0x0F)), program };
   bleQueueMIDIMessage(msg, 2);
@@ -145,6 +149,7 @@ void sendProgramChange(uint8_t program, uint8_t channel) {
 }
 
 void sendAftertouch(uint8_t pressure, uint8_t channel) {
+  if (sysexEditMute) return;  // "edit only output" active
 #ifdef USE_BLE_MIDI
   uint8_t msg[] = { uint8_t(0xD0 | ((channel - 1) & 0x0F)), pressure };
   bleQueueMIDIMessage(msg, 2);
@@ -162,6 +167,7 @@ void sendAftertouch(uint8_t pressure, uint8_t channel) {
 }
 
 void sendPitchBend(int16_t bend, uint8_t channel) {
+  if (sysexEditMute) return;  // "edit only output" active
   bend = constrain(bend, -8192, 8191);
   uint16_t value = bend + 8192;
 #ifdef USE_BLE_MIDI

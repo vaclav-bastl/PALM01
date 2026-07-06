@@ -10,6 +10,9 @@
 //   0x04          save config + name to NVS
 //   0x05          set device name (ASCII <=16, applies on reboot)
 //   0x06          revert: reload NVS, discarding live edits
+//   0x07          edit mode: payload[0]=1 mutes normal MIDI output (the
+//                 configurator's DIN icons send instead), 0 restores it.
+//                 RAM only -- a reboot always clears it.
 //
 // Requests can arrive over BLE (characteristic writes) or over the
 // exohub's ESP-NOW downstream; replies return on the same transport.
@@ -145,6 +148,15 @@ static void sysexHandle(uint8_t source) {
     }
     case 0x06:
       configLoad();
+      break;
+    case 0x07:
+      if (n >= 1) {
+        bool on = p[0] != 0;
+        if (on && !sysexEditMute)  // release held notes before going quiet
+          noteModeAllNotesOffLocal(presetMidiChannel(currentPreset));
+        sysexEditMute = on;
+        Serial.printf("sysex: edit mute %s\n", on ? "on" : "off");
+      }
       break;
   }
 }

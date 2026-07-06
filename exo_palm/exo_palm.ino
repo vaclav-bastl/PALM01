@@ -96,6 +96,7 @@ long longPressTime = 0;
 // TOUCHPOINT / BUTTON INDICES
 // =====================================================
 bool leftHand = true;  // mirrors the finger layout for the other hand
+bool sysexEditMute = false;  // configurator "edit only output": normal MIDI muted
 
 #define INDEX_A 6
 #define INDEX_B 7

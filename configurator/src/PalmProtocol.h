@@ -40,6 +40,10 @@ std::vector<uint8_t> buildSetParam(int addr, uint8_t value);
 std::vector<uint8_t> buildSave();
 std::vector<uint8_t> buildSetName(const std::string& name);
 std::vector<uint8_t> buildRevert();
+std::vector<uint8_t> buildEditMode(bool on);  // mute normal device output (RAM only)
+
+// ---- note-mode chords (finger bytes repurposed per root, see firmware) ----
+constexpr uint8_t kChordMaskMagic = 0x42;  // finger field 5 marks mask valid
 
 // ---- reply parsing (input: complete SysEx frame incl. F0/F7) ----
 bool isPalmFrame(const uint8_t* data, int len);

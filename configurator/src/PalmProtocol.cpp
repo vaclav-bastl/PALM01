@@ -29,6 +29,7 @@ std::vector<uint8_t> buildSetName(const std::string& name) {
 }
 
 std::vector<uint8_t> buildRevert() { return frame({ 0x06 }); }
+std::vector<uint8_t> buildEditMode(bool on) { return frame({ 0x07, (uint8_t)(on ? 1 : 0) }); }
 
 bool isPalmFrame(const uint8_t* d, int len) {
     return len >= 7 && d[0] == 0xF0 && d[1] == 0x7D

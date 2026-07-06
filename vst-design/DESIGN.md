@@ -30,6 +30,7 @@ manufacturer ID — swap for a real one before release). All payload bytes
 | 0x04 | host→PALM | save current config to NVS |
 | 0x05 | host→PALM | set device name (ASCII ≤16; applies after reboot) |
 | 0x06 | host→PALM | revert: reload NVS (disc discards live edits) |
+| 0x07 | host→PALM | edit mode: payload 1=mute normal MIDI output (plugin DIN icons send instead, for DAW MIDI-learn), 0=restore. RAM only; reboot clears |
 
 Parameter address space (byte offsets into the config blob):
 - 0: leftHand (0/1)
@@ -39,6 +40,12 @@ Parameter address space (byte offsets into the config blob):
 - per finger f in 0..7, preset p at 26+ (f*4+p)*6: TOUCH_CC, TOUCH_RANGE,
   WRIST_CC, WRIST_RESET, ELBOW_CC, ELBOW_RESET
 - total: 26 + 192 = 218 bytes (+ name stored separately)
+
+NOTE presets repurpose the (otherwise unused) finger bytes per chord root:
+byte 0 = 12-bit pitch-class mask lo7, byte 1 = mask hi5, byte 5 = 0x42
+(magic marking the mask valid). The root finger's mask replaces the fixed
+triad/dom7 arpeggio tables, built relative to the root across 4 octaves.
+Roots map fingers→white keys c..b exactly as `getRootFromTouchesLocal`.
 
 ## Firmware
 

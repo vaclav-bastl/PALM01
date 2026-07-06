@@ -11,6 +11,36 @@
 static const int8_t kOffsetsTriad[13] = { 0, 4, 7, 12, 16, 19, 24, 28, 31, 36, 40, 43, 48 };
 static const int8_t kOffsetsWith7[17] = { 0, 4, 7, 10, 12, 16, 19, 22, 24, 28, 31, 34, 36, 40, 43, 46, 48 };
 
+// Per-root editable chords (see palm_shared.h): the root finger's preset
+// bytes hold a 12-bit pitch-class mask. When valid, the arpeggio offsets
+// come from the mask (relative to the root, four octaves + top root)
+// instead of the fixed tables above.
+static int8_t g_customOffsets[40];
+static int buildCustomOffsets(int fingerIdx, int rootBase) {
+  if (fingerIdx < 0 || fingerIdx >= NUMBER_OF_FINGERS) return 0;
+  const uint8_t* q = preset[fingerIdx][currentPreset];
+  if (q[5] != CHORD_MASK_MAGIC) return 0;
+  uint16_t mask = (uint16_t)(q[0] | ((uint16_t)q[1] << 7)) & 0x0FFF;
+  if (mask == 0) return 0;
+
+  int rootPc = ((rootBase % 12) + 12) % 12;
+  int rel[12], t = 0;
+  for (int pc = 0; pc < 12; pc++)
+    if (mask & (1 << pc)) rel[t++] = (pc - rootPc + 12) % 12;
+  for (int i = 1; i < t; i++) {  // insertion sort, t <= 12
+    int v = rel[i], j = i;
+    while (j > 0 && rel[j - 1] > v) { rel[j] = rel[j - 1]; j--; }
+    rel[j] = v;
+  }
+
+  int n = 0;
+  for (int oct = 0; oct < 4 && n < 39; oct++)
+    for (int i = 0; i < t && n < 39; i++)
+      g_customOffsets[n++] = (int8_t)(rel[i] + oct * 12);
+  g_customOffsets[n++] = 48;  // top root, like the fixed tables
+  return n;
+}
+
 static const int MIDI_NOTE_C3 = 24;
 static const int MIDI_NOTE_D3 = 26;
 static const int MIDI_NOTE_E3 = 28;
@@ -171,7 +201,9 @@ void noteModeTick(uint8_t ch) {
   }
 
   const int8_t* offsets = g_addSeventh ? kOffsetsWith7 : kOffsetsTriad;
-  const int bucketCount = g_addSeventh ? 17 : 13;
+  int bucketCount = g_addSeventh ? 17 : 13;
+  int customN = buildCustomOffsets(g_rootTouchIdxPrimary, rootBase);
+  if (customN > 0) { offsets = g_customOffsets; bucketCount = customN; }
 
   if (bucketCount != lastBucketCount) {
     noteModeAllNotesOffLocal(ch);

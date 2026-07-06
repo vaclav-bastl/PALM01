@@ -48,8 +48,15 @@ static const uint8_t PAIR_COUNT = 4;
 static const uint8_t pairA[PAIR_COUNT] = { 0 /*LITTLE_A*/, 2 /*RING_A*/, 4 /*MIDDLE_A*/, 6 /*INDEX_A*/ };
 static const uint8_t pairB[PAIR_COUNT] = { 1 /*LITTLE_B*/, 3 /*RING_B*/, 5 /*MIDDLE_B*/, 7 /*INDEX_B*/ };
 
+// ---------- Note-mode chord masks (stored in the per-finger bytes) ----------
+// In NOTE presets the CC fields are unused; the configurator repurposes
+// them per root finger: [0]=pitch-class mask lo7, [1]=mask hi5,
+// [5]=CHORD_MASK_MAGIC marks the mask valid (defaults keep the old tables).
+#define CHORD_MASK_MAGIC 0x42
+
 // ---------- Shared vars provided by main tab ----------
 extern bool leftHand;
+extern bool sysexEditMute;  // configurator "edit only output": normal MIDI muted
 
 // Per-finger mapping table
 extern uint8_t preset[NUMBER_OF_FINGERS][NUMBER_OF_PRESETS][NUMBER_OF_BYTES_IN_PRESET];
