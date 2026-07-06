@@ -8,15 +8,31 @@
 #include <map>
 #include <functional>
 
-// A labeled value row: "wrist cc: 15". Drag vertically (or click+type via
-// double-click) to change; if disableable, clicking the leading dot toggles
-// off (raw 255) and the row renders grey.
+// Flat mockup styling: borderless combo boxes, text-only toggles and
+// buttons, Eightgon in the popups too.
+class PalmLookAndFeel : public juce::LookAndFeel_V4 {
+public:
+    juce::Font font { juce::FontOptions{} };
+    PalmLookAndFeel();
+    void drawComboBox(juce::Graphics&, int, int, bool, int, int, int, int, juce::ComboBox&) override {}
+    void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
+    juce::Font getComboBoxFont(juce::ComboBox&) override { return font; }
+    juce::Font getPopupMenuFont() override { return font; }
+    juce::Font getTextButtonFont(juce::TextButton&, int) override { return font; }
+    void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&, bool, bool) override {}
+    void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool, bool) override;
+};
+
+// A labeled value row: "wrist cc: 15". Drag vertically to change; if
+// disableable, a MIDI DIN plug icon leads the row and clicking it toggles
+// off (raw 255) -- the row then renders grey with value "off".
 class ParamRow : public juce::Component {
 public:
     juce::String label;
     juce::Font font { juce::FontOptions{} };
     bool disableable = false;   // 255 = off
     uint8_t minV = 0, maxV = 127;
+    int valueX = 106;           // mockup value column, relative to row origin
     std::function<void(uint8_t)> onValue;
     std::function<juce::String(uint8_t)> formatter;  // optional display override
 
@@ -43,7 +59,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void mouseDown(const juce::MouseEvent&) override;  // hand toggle
+    void mouseDown(const juce::MouseEvent&) override;  // hand toggle + pad select
 
 private:
     void deviceInfoReceived(const palm::DeviceInfo&) override;
@@ -59,7 +75,13 @@ private:
     palm::Config& cfg() { return proc.lastConfig; }
     const palm::Config& cfg() const { return proc.lastConfig; }
 
+    void drawDevice(juce::Graphics&);   // full-height sidebar silhouette
+    void drawHand(juce::Graphics&);     // hand + strap, mirrored per side
+    void drawConnIcons(juce::Graphics&);
+    void drawChordGrid(juce::Graphics&);
+
     ExoPalmProcessor& proc;
+    PalmLookAndFeel lnf;                // before components: they reference it
     juce::Font eightgon, eightgonBig;
 
     // header
@@ -74,13 +96,15 @@ private:
     juce::ComboBox fingerBox;
     juce::Label touchHeader;
     ParamRow tCc, tRange, fWristCc, fWristRel, fElbowCc, fElbowRel;
-    ParamRow selectorRow;               // note mode
-    juce::Label chordLabel;             // note mode (fixed mapping)
+    ParamRow selectorRow, chordRow;     // note mode
     juce::Label handLabel;              // click toggles left/right
 
     // monitor
     struct MonRow { juce::String msg, ch, num, val; };
     std::deque<MonRow> monitor;
+
+    juce::Rectangle<int> padRects[8];   // sidebar octagons, click = pick finger
+    juce::Rectangle<int> handArea;
 
     juce::Array<PalmDevice::Port> ports;
     int preset = 0, finger = 6;         // default INDEX_A like the mockup

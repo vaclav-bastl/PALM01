@@ -1,38 +1,66 @@
 #include "PluginEditor.h"
-#include <deque>
+#include <cmath>
 
 juce::AudioProcessorEditor* ExoPalmProcessor::createEditor() {
     return new ExoPalmEditor(*this);
 }
 
-static const juce::Colour kBg = juce::Colours::black;
+static const juce::Colour kBg { 0xff0d0b0d };
 static const juce::Colour kFg = juce::Colours::white;
 static const juce::Colour kGrey { 0xff6a6a6a };
+
+// mockup geometry (1/2 of the 2094x1132 png)
+static constexpr int kRowX = 122, kRowW = 250;   // labels at 138, values at 228
+static constexpr int kColMsg = 138, kColCh = 229, kColNum = 307, kColVal = 374;
+
+// ---------- look and feel ----------
+
+PalmLookAndFeel::PalmLookAndFeel() {
+    setColour(juce::PopupMenu::backgroundColourId, kBg);
+    setColour(juce::PopupMenu::textColourId, kFg);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xff2c2c2c));
+    setColour(juce::PopupMenu::highlightedTextColourId, kFg);
+}
+
+void PalmLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label) {
+    label.setBounds(0, 0, box.getWidth(), box.getHeight());
+    label.setBorderSize({ 0, 0, 0, 0 });
+    label.setFont(font);
+}
+
+void PalmLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& b, bool, bool) {
+    g.setFont(font);
+    g.setColour(b.getToggleState() ? kFg : kGrey);
+    g.drawText(b.getButtonText(), b.getLocalBounds(), juce::Justification::centredLeft);
+}
 
 // ---------- ParamRow ----------
 
 void ParamRow::paint(juce::Graphics& g) {
-    g.setFont(font.withHeight(getHeight() * 0.72f));
     auto col = isOff() ? kGrey : kFg;
+    g.setFont(font);
 
-    int x = 0;
     if (disableable) {
-        auto dot = juce::Rectangle<float>(2.0f, getHeight() * 0.32f, getHeight() * 0.34f, getHeight() * 0.34f);
+        // MIDI DIN plug in the gutter: filled circle, five pin holes on an arc
+        float d = 11.0f, y0 = (getHeight() - d) * 0.5f;
         g.setColour(col);
-        if (isOff()) g.drawEllipse(dot, 1.0f);
-        else g.fillEllipse(dot);
-        x = getHeight() / 2 + 6;
+        g.fillEllipse(0.0f, y0, d, d);
+        g.setColour(kBg);
+        float cx = d / 2, cy = y0 + d / 2, pr = d * 0.30f;
+        for (float a : { -1.6f, -0.8f, 0.0f, 0.8f, 1.6f })
+            g.fillEllipse(cx + pr * std::sin(a) - 1.0f, cy - pr * std::cos(a) - 1.0f, 2.0f, 2.0f);
     }
+
     g.setColour(col);
-    g.drawText(label + ":", x, 0, getWidth() - x, getHeight(), juce::Justification::centredLeft);
+    g.drawText(label + ":", 16, 0, valueX - 18, getHeight(), juce::Justification::centredLeft);
 
     juce::String v = isOff() ? "off"
                    : (formatter ? formatter(raw) : juce::String((int)raw));
-    g.drawText(v, getWidth() - 64, 0, 60, getHeight(), juce::Justification::centredLeft);
+    g.drawText(v, valueX, 0, getWidth() - valueX, getHeight(), juce::Justification::centredLeft);
 }
 
 void ParamRow::mouseDown(const juce::MouseEvent& e) {
-    if (disableable && e.x < getHeight() / 2 + 4) {
+    if (disableable && e.x < 16) {
         if (isOff()) apply(lastOn);
         else { lastOn = raw; apply(255); }
         return;
@@ -41,7 +69,7 @@ void ParamRow::mouseDown(const juce::MouseEvent& e) {
 }
 
 void ParamRow::mouseDrag(const juce::MouseEvent& e) {
-    if (dragStartVal < 0) return;  // off: dot first
+    if (dragStartVal < 0) return;  // off: plug icon first
     int v = dragStartVal + (-e.getDistanceFromDragStartY() / 3);
     v = juce::jlimit((int)minV, (int)maxV, v);
     if ((uint8_t)v != raw) apply((uint8_t)v);
@@ -54,13 +82,16 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     auto tf = juce::Typeface::createSystemTypefaceFor(BinaryData::EightgonOGn6p_ttf,
                                                       (size_t)BinaryData::EightgonOGn6p_ttfSize);
     eightgon = juce::Font(juce::FontOptions(tf)).withHeight(13.0f);
-    eightgonBig = juce::Font(juce::FontOptions(tf)).withHeight(17.0f);
+    eightgonBig = juce::Font(juce::FontOptions(tf)).withHeight(19.0f);
+    lnf.font = eightgon;
+    setLookAndFeel(&lnf);
 
-    setSize(540, 560);
+    setSize(524, 566);  // mockup panel at 1:1
 
     auto styleLabel = [&](juce::Label& l, juce::Colour c = kFg) {
         addAndMakeVisible(l);
         l.setFont(eightgon);
+        l.setBorderSize({ 0, 0, 0, 0 });
         l.setColour(juce::Label::textColourId, c);
         l.setJustificationType(juce::Justification::centredLeft);
     };
@@ -68,8 +99,6 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     addAndMakeVisible(portBox);
     portBox.setColour(juce::ComboBox::backgroundColourId, kBg);
     portBox.setColour(juce::ComboBox::textColourId, kFg);
-    portBox.setColour(juce::ComboBox::outlineColourId, kGrey);
-    portBox.setColour(juce::ComboBox::arrowColourId, kFg);
     portBox.setTextWhenNothingSelected("midi port: ...");
     portBox.onChange = [this] {
         int idx = portBox.getSelectedItemIndex();
@@ -82,9 +111,9 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
         }
     };
 
-    styleLabel(opLabel);      opLabel.setText("normal operation", juce::dontSendNotification);
-    styleLabel(nameLabel);    nameLabel.setText("name: -", juce::dontSendNotification);
-    styleLabel(connLabel, kGrey); connLabel.setText("connection: -", juce::dontSendNotification);
+    styleLabel(opLabel);   opLabel.setText("normal operation", juce::dontSendNotification);
+    styleLabel(nameLabel); nameLabel.setText("name: -", juce::dontSendNotification);
+    styleLabel(connLabel); connLabel.setText("connection: -", juce::dontSendNotification);
 
     nameLabel.setEditable(false, true);  // double-click to rename
     nameLabel.onTextChange = [this] {
@@ -96,15 +125,15 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     };
 
     addAndMakeVisible(editOnly);
-    editOnly.setColour(juce::ToggleButton::textColourId, kGrey);
-    editOnly.setColour(juce::ToggleButton::tickColourId, kFg);
-    editOnly.setColour(juce::ToggleButton::tickDisabledColourId, kGrey);
+    editOnly.onClick = [this] {
+        opLabel.setColour(juce::Label::textColourId,
+                          editOnly.getToggleState() ? kGrey : kFg);
+    };
 
-    for (auto* b : { &saveBtn, &revertBtn }) {
-        addAndMakeVisible(*b);
-        b->setColour(juce::TextButton::buttonColourId, kBg);
-        b->setColour(juce::TextButton::textColourOffId, kFg);
-    }
+    addAndMakeVisible(saveBtn);
+    saveBtn.setColour(juce::TextButton::textColourOffId, kFg);
+    addAndMakeVisible(revertBtn);
+    revertBtn.setColour(juce::TextButton::textColourOffId, kGrey);
     saveBtn.onClick = [this] {
         for (auto& [addr, v] : dirty) proc.device.setParam(addr, v);
         dirty.clear();
@@ -157,8 +186,6 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     addAndMakeVisible(fingerBox);
     fingerBox.setColour(juce::ComboBox::backgroundColourId, kBg);
     fingerBox.setColour(juce::ComboBox::textColourId, kFg);
-    fingerBox.setColour(juce::ComboBox::outlineColourId, kGrey);
-    fingerBox.setColour(juce::ComboBox::arrowColourId, kFg);
     const char* fingers[] = { "little a", "little b", "ring a", "ring b",
                               "middle a", "middle b", "index a", "index b" };
     for (int i = 0; i < 8; i++) fingerBox.addItem(fingers[i], i + 1);
@@ -166,7 +193,7 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     fingerBox.onChange = [this] { finger = fingerBox.getSelectedItemIndex(); refreshFromConfig(); };
 
     styleLabel(touchHeader);
-    touchHeader.setText("touch activated", juce::dontSendNotification);
+    touchHeader.setText("touch activated:", juce::dontSendNotification);
 
     initRow(tCc, "touch cc", true, 0, 127);
     tCc.onValue = [this](uint8_t v) { sendParam(palm::addrFinger(finger, preset, 0), v); refreshFromConfig(); };
@@ -187,12 +214,12 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     initRow(selectorRow, "selector cc", true, 0, 127);
     selectorRow.onValue = [this](uint8_t v) { sendParam(palm::addrPreset(preset, 1), v); };
 
-    styleLabel(chordLabel, kGrey);
-    chordLabel.setText("chord:  c major", juce::dontSendNotification);
+    initRow(chordRow, "chord", false, 0, 0);   // fixed mapping for now
+    chordRow.formatter = [](uint8_t) { return juce::String("c major"); };
 
     styleLabel(handLabel);
-    handLabel.setInterceptsMouseClicks(true, false);
-    handLabel.addMouseListener(this, false);
+    handLabel.setJustificationType(juce::Justification::centred);
+    handLabel.setInterceptsMouseClicks(false, false);  // handArea handles clicks
 
     proc.device.setListener(this);
     rescanPorts();
@@ -203,108 +230,202 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
 }
 
 ExoPalmEditor::~ExoPalmEditor() {
+    setLookAndFeel(nullptr);
     proc.device.setListener(nullptr);
+}
+
+// full-height device silhouette: cut-corner outline, sensor cluster, four
+// finger pad pairs (selected = filled), button cluster, logo -- per mockup
+void ExoPalmEditor::drawDevice(juce::Graphics& g) {
+    g.setColour(kFg);
+    const float x0 = 19, y0 = 59, x1 = 116, y1 = 553, c = 16;
+    juce::Path body;
+    body.startNewSubPath(x0 + c, y0); body.lineTo(x1 - c, y0); body.lineTo(x1, y0 + c);
+    body.lineTo(x1, y1 - c); body.lineTo(x1 - c, y1); body.lineTo(x0 + c, y1);
+    body.lineTo(x0, y1 - c); body.lineTo(x0, y0 + c);
+    body.closeSubPath();
+    g.strokePath(body, juce::PathStrokeType(1.2f));
+
+    // sensor cluster: filled hexagon + two ringed octagons
+    juce::Path hex;
+    hex.addPolygon({ 38.0f, 84.0f }, 6, 15.0f, juce::MathConstants<float>::halfPi);
+    g.fillPath(hex);
+    for (float cx : { 70.0f, 99.0f }) {
+        juce::Path oct;
+        oct.addPolygon({ cx, 84.0f }, 8, 13.0f, juce::MathConstants<float>::pi / 8.0f);
+        g.strokePath(oct, juce::PathStrokeType(1.2f));
+        g.drawEllipse(cx - 5.5f, 78.5f, 11.0f, 11.0f, 1.2f);
+    }
+
+    // finger pads: rows top->bottom index/middle/ring/little, columns a/b
+    static constexpr int rowBase[4] = { 6, 4, 2, 0 };
+    for (int r = 0; r < 4; r++)
+        for (int col = 0; col < 2; col++) {
+            auto& rect = padRects[r * 2 + col];
+            juce::Path oct;
+            oct.addPolygon(rect.getCentre().toFloat(), 8, 17.5f,
+                           juce::MathConstants<float>::pi / 8.0f);
+            if (!noteMode() && finger == rowBase[r] + col) g.fillPath(oct);
+            else g.strokePath(oct, juce::PathStrokeType(1.3f));
+        }
+
+    // button cluster
+    for (int i = 0; i < 3; i++) {
+        auto sq = juce::Rectangle<float>(26.0f + i * 30.0f, 440.0f, 22.0f, 22.0f);
+        g.drawRect(sq, 1.2f);
+        if (i == 1) {
+            juce::Path h2;
+            h2.addPolygon(sq.getCentre(), 6, 6.0f, juce::MathConstants<float>::halfPi);
+            g.strokePath(h2, juce::PathStrokeType(1.2f));
+        } else
+            g.drawEllipse(sq.reduced(5.0f), 1.2f);
+    }
+    auto sq = juce::Rectangle<float>(56.0f, 468.0f, 22.0f, 22.0f);
+    g.drawRect(sq, 1.2f);
+    g.drawEllipse(sq.reduced(5.0f), 1.2f);
+
+    g.setFont(eightgonBig);
+    g.drawText("EXO", 30, 500, 70, 19, juce::Justification::left);
+    g.drawText("PALM", 30, 519, 70, 19, juce::Justification::left);
+}
+
+// line-drawn hand, fingers up, strap across the palm; mirrored for right
+void ExoPalmEditor::drawHand(juce::Graphics& g) {
+    bool left = cfg().get(palm::kAddrLeftHand) != 0;
+
+    juce::Path h;
+    h.startNewSubPath(22, 110);
+    h.lineTo(16, 80);
+    h.lineTo(3, 68); h.lineTo(7, 59); h.lineTo(17, 67);    // thumb
+    h.lineTo(16, 52);
+    h.lineTo(17, 14); h.lineTo(23, 12); h.lineTo(25, 48);  // index
+    h.lineTo(27, 8);  h.lineTo(33, 6);  h.lineTo(35, 46);  // middle
+    h.lineTo(37, 5);  h.lineTo(43, 7);  h.lineTo(45, 48);  // ring
+    h.lineTo(47, 16); h.lineTo(53, 18); h.lineTo(54, 52);  // little
+    h.lineTo(58, 80); h.lineTo(52, 110);
+    h.closeSubPath();
+
+    juce::Path strap;
+    strap.addRoundedRectangle(-29.0f, -4.5f, 58.0f, 9.0f, 4.5f);
+    strap.applyTransform(juce::AffineTransform::rotation(-0.14f).translated(35.0f, 60.0f));
+
+    auto place = juce::AffineTransform::translation(322.0f, 96.0f);
+    if (!left)
+        place = juce::AffineTransform::scale(-1.0f, 1.0f).translated(60.0f, 0.0f)
+                    .followedBy(place);
+
+    g.setColour(kFg);
+    g.strokePath(h, juce::PathStrokeType(1.5f), place);
+    juce::Path s2(strap); s2.applyTransform(place);
+    g.setColour(kBg); g.fillPath(s2);          // strap covers the palm lines
+    g.setColour(kFg);
+    juce::Path s3(strap); s3.applyTransform(place);
+    g.fillPath(s3);
+}
+
+// wifi fan + bluetooth rune after "connection:", active link in white
+void ExoPalmEditor::drawConnIcons(juce::Graphics& g) {
+    bool open = proc.device.isOpen() || connLabel.getText().contains("hub")
+                                     || connLabel.getText().contains("bt");
+    bool bt = connLabel.getText().contains("bt");
+
+    float wx = 438.0f, wy = 41.0f;
+    g.setColour(open && !bt ? kFg : kGrey);
+    g.fillEllipse(wx - 1.5f, wy - 1.5f, 3.0f, 3.0f);
+    juce::Path arcs;
+    arcs.addCentredArc(wx, wy, 5.0f, 5.0f, 0, -0.7f, 0.7f, true);
+    arcs.addCentredArc(wx, wy, 9.0f, 9.0f, 0, -0.7f, 0.7f, true);
+    g.strokePath(arcs, juce::PathStrokeType(1.4f));
+
+    g.setColour(open && bt ? kFg : kGrey);
+    juce::Path b;
+    b.startNewSubPath(455.0f, 33.0f);
+    b.lineTo(463.0f, 40.0f); b.lineTo(459.0f, 43.5f); b.lineTo(459.0f, 29.5f);
+    b.lineTo(463.0f, 33.0f); b.lineTo(455.0f, 40.0f);
+    g.strokePath(b, juce::PathStrokeType(1.2f));
+}
+
+// note mode: two-row piano pad grid, chord tones in white
+void ExoPalmEditor::drawChordGrid(juce::Graphics& g) {
+    const int gx = 196, wy = 306, by = 282, sz = 23, pitch = 33;
+    static const bool tone[7] = { true, false, true, false, true, false, false };  // c e g
+    for (int i = 0; i < 7; i++) {
+        g.setColour(tone[i] ? kFg : kGrey);
+        g.fillRect(gx + i * pitch, wy, sz, sz);
+    }
+    g.setColour(kGrey.darker(0.35f));
+    for (int i : { 0, 1, 3, 4, 5 })
+        g.fillRect(gx + i * pitch + 20, by, sz, sz);
 }
 
 void ExoPalmEditor::paint(juce::Graphics& g) {
     g.fillAll(kBg);
-    g.setColour(kFg);
     g.setFont(eightgon);
 
-
-
-    // left sidebar: stylized device (octagon pads + outline)
-    auto side = juce::Rectangle<int>(10, 66, 96, 300);
-    g.drawRect(side.expanded(4), 1);
-    for (int r = 0; r < 4; r++)
-        for (int c = 0; c < 2; c++) {
-            juce::Path oct;
-            float cx = (float)(side.getX() + 24 + c * 44);
-            float cy = (float)(side.getY() + 28 + r * 46);
-            oct.addPolygon({ cx, cy }, 8, 16.0f, juce::MathConstants<float>::pi / 8.0f);
-            g.strokePath(oct, juce::PathStrokeType(1.2f));
-        }
-    // thumb pads
-    for (int t = 0; t < 3; t++) {
-        juce::Path oct;
-        oct.addPolygon({ (float)(side.getX() + 16 + t * 32), (float)(side.getBottom() - 24) },
-                       8, 10.0f, juce::MathConstants<float>::pi / 8.0f);
-        g.strokePath(oct, juce::PathStrokeType(1.0f));
-    }
-
-    // logo
-    g.setFont(eightgonBig);
-    g.drawText("EXO", 14, getHeight() - 78, 60, 20, juce::Justification::left);
-    g.drawText("PALM", 14, getHeight() - 58, 60, 20, juce::Justification::left);
-    g.drawRect(10, getHeight() - 84, 68, 52, 1);
-
-    // header separators
-    g.setColour(kGrey.withAlpha(0.4f));
-    g.drawHorizontalLine(58, 8.0f, (float)(getWidth() - 8));
-
-    // NOTE mode: decorative pad squares (as in the mockup)
-    if (noteMode()) {
-        int sx = 130, sy = 306;
-        for (int i = 0; i < 8; i++) {
-            auto r = juce::Rectangle<int>(sx + i * 22, sy, 14, 14);
-            g.setColour(i % 3 == 0 ? kFg : kGrey);
-            if (i % 2 == 0) g.fillRect(r); else g.drawRect(r, 1);
-        }
-    }
+    drawDevice(g);
+    drawHand(g);
+    drawConnIcons(g);
+    if (noteMode()) drawChordGrid(g);
 
     // midi monitor
-    int my = 380;
+    int my = 385;
     g.setColour(kFg);
     g.setFont(eightgon);
-    g.drawText("midi monitor", 130, my, 200, 16, juce::Justification::left);
+    g.drawText("midi monitor", kColMsg, my, 200, 16, juce::Justification::left);
     g.setColour(kGrey);
     const char* heads[] = { "message", "channel", "number", "value" };
-    int colX[] = { 130, 280, 360, 440 };
+    int colX[] = { kColMsg, kColCh, kColNum, kColVal };
     for (int i = 0; i < 4; i++)
-        g.drawText(heads[i], colX[i], my + 20, 100, 14, juce::Justification::left);
+        g.drawText(heads[i], colX[i], my + 18, 100, 16, juce::Justification::left);
     g.setColour(kFg);
-    int y = my + 38;
+    int y = my + 36;
     for (auto& row : monitor) {
-        g.drawText(row.msg, colX[0], y, 140, 14, juce::Justification::left);
-        g.drawText(row.ch,  colX[1], y, 60, 14, juce::Justification::left);
-        g.drawText(row.num, colX[2], y, 70, 14, juce::Justification::left);
-        g.drawText(row.val, colX[3], y, 60, 14, juce::Justification::left);
-        y += 16;
+        g.drawText(row.msg, colX[0], y, 90, 16, juce::Justification::left);
+        g.drawText(row.ch,  colX[1], y, 60, 16, juce::Justification::left);
+        g.drawText(row.num, colX[2], y, 70, 16, juce::Justification::left);
+        g.drawText(row.val, colX[3], y, 60, 16, juce::Justification::left);
+        y += 18;
     }
 }
 
 void ExoPalmEditor::resized() {
-    portBox.setBounds(10, 8, 200, 20);
-    nameLabel.setBounds(getWidth() - 220, 8, 150, 20);
-    connLabel.setBounds(getWidth() - 220, 30, 150, 20);
-    opLabel.setBounds(10, 32, 160, 20);
-    editOnly.setBounds(170, 32, 150, 20);
-    saveBtn.setBounds(getWidth() - 66, 8, 56, 20);
-    revertBtn.setBounds(getWidth() - 66, 30, 56, 20);
+    portBox.setBounds(17, 8, 250, 16);
+    opLabel.setBounds(17, 28, 122, 16);
+    editOnly.setBounds(141, 28, 130, 16);
+    nameLabel.setBounds(300, 8, 170, 16);
+    connLabel.setBounds(300, 28, 130, 16);
+    saveBtn.setBounds(408, 542, 44, 16);
+    revertBtn.setBounds(456, 542, 54, 16);
 
-    int x = 130, w = 250, h = 18, y = 70;
-    auto place = [&](juce::Component& c, int gap = 2) { c.setBounds(x, y, w, h); y += h + gap; };
+    int y = 63, h = 16, pitch = 18;
+    auto place = [&](juce::Component& c) { c.setBounds(kRowX, y, kRowW, h); y += pitch; };
     place(presetRow);
     place(channelRow);
-    place(modeRow, 10);
+    place(modeRow);
     place(gWristCc);
-    place(gWristRel, 2);
+    place(gWristRel);
     place(gElbowCc);
-    place(gElbowRel, 14);
+    place(gElbowRel);
 
-    handLabel.setBounds(x + w + 10, 70, 120, 60);
-
-    fingerBox.setBounds(x + 110, y - 2, 120, 20);
-    touchHeader.setBounds(x, y, 110, h); y += h + 4;
+    touchHeader.setBounds(kRowX + 16, 220, 108, h);
+    fingerBox.setBounds(kRowX + 106, 220, 110, h);
+    y = 238;
     place(tCc);
-    place(tRange, 2);
+    place(tRange);
     place(fWristCc);
-    place(fWristRel, 2);
+    place(fWristRel);
     place(fElbowCc);
     place(fElbowRel);
 
-    selectorRow.setBounds(x, 210, w, h);
-    chordLabel.setBounds(x, 232, w, h);
+    selectorRow.setBounds(kRowX, 208, kRowW, h);
+    chordRow.setBounds(kRowX, 226, kRowW, h);
+
+    handLabel.setBounds(312, 76, 90, 16);
+    handArea = { 312, 74, 110, 140 };
+
+    for (int r = 0; r < 4; r++)
+        for (int col = 0; col < 2; col++)
+            padRects[r * 2 + col] = { 45 + col * 45 - 17, 157 + r * 65 - 17, 35, 35 };
 }
 
 void ExoPalmEditor::refreshFromConfig() {
@@ -329,7 +450,7 @@ void ExoPalmEditor::refreshFromConfig() {
     fingerBox.setVisible(!nm);
     touchHeader.setVisible(!nm);
     selectorRow.setVisible(nm);
-    chordLabel.setVisible(nm);
+    chordRow.setVisible(nm);
 
     if (!nm) {
         tCc.setRaw(c.get(palm::addrFinger(finger, preset, 0)));
@@ -340,6 +461,7 @@ void ExoPalmEditor::refreshFromConfig() {
         fElbowRel.setRaw(c.get(palm::addrFinger(finger, preset, 5)));
     } else {
         selectorRow.setRaw(c.get(palm::addrPreset(preset, 1)));
+        chordRow.setRaw(0);
     }
 
     handLabel.setText(c.get(palm::kAddrLeftHand) ? "left hand" : "right hand",
@@ -371,11 +493,23 @@ void ExoPalmEditor::rescanPorts() {
 void ExoPalmEditor::timerCallback() { rescanPorts(); }
 
 void ExoPalmEditor::mouseDown(const juce::MouseEvent& e) {
-    if (e.originalComponent == &handLabel) {
+    if (e.originalComponent != this) return;
+
+    if (handArea.contains(e.getPosition())) {
         uint8_t v = cfg().get(palm::kAddrLeftHand) ? 0 : 1;
         sendParam(palm::kAddrLeftHand, v);
         refreshFromConfig();
+        return;
     }
+
+    static constexpr int rowBase[4] = { 6, 4, 2, 0 };
+    for (int i = 0; i < 8; i++)
+        if (padRects[i].contains(e.getPosition())) {
+            finger = rowBase[i / 2] + (i % 2);
+            fingerBox.setSelectedItemIndex(finger, juce::dontSendNotification);
+            refreshFromConfig();
+            return;
+        }
 }
 
 void ExoPalmEditor::deviceInfoReceived(const palm::DeviceInfo& i) {
@@ -393,6 +527,7 @@ void ExoPalmEditor::connectionChanged() {
         connLabel.setText("connection: -", juce::dontSendNotification);
         opLabel.setText("not connected", juce::dontSendNotification);
     }
+    repaint();
 }
 
 void ExoPalmEditor::midiActivity(const juce::MidiMessage& m) {
@@ -404,5 +539,5 @@ void ExoPalmEditor::midiActivity(const juce::MidiMessage& m) {
     r.ch = juce::String(m.getChannel());
     monitor.push_front(r);
     while (monitor.size() > 6) monitor.pop_back();
-    repaint(120, 380, getWidth() - 130, 160);
+    repaint(kColMsg - 4, 380, getWidth() - kColMsg, 160);
 }
