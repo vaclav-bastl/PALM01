@@ -101,16 +101,20 @@ void ParamRow::paint(juce::Graphics& g) {
 
 void ParamRow::mouseDown(const juce::MouseEvent& e) {
     if (readOnly) return;
+    grabKeyboardFocus();  // closes any text box open elsewhere
     if (hasIcon && e.x < 16) {
+        // send the mapped MIDI message and open the value box for typing
         if (onIconClick && !isOff()) onIconClick();
+        openEdit();
         return;
     }
+    if (toggleOnClick) { apply(raw ? (uint8_t)0 : (uint8_t)1); return; }
     dragStartVal = raw == 255 ? (disableable ? (int)minV - 12 : (int)maxV + 12)
                               : (int)raw;
 }
 
 void ParamRow::mouseDrag(const juce::MouseEvent& e) {
-    if (readOnly || (hasIcon && e.getMouseDownX() < 16)) return;
+    if (readOnly || toggleOnClick || (hasIcon && e.getMouseDownX() < 16)) return;
     int v = dragStartVal + (-e.getDistanceFromDragStartY() / 3);
     uint8_t nv;
     if (disableable && v < (int)minV - 4) nv = 255;
@@ -120,7 +124,11 @@ void ParamRow::mouseDrag(const juce::MouseEvent& e) {
 }
 
 void ParamRow::mouseDoubleClick(const juce::MouseEvent&) {
-    if (readOnly) return;
+    if (readOnly || toggleOnClick) return;
+    openEdit();
+}
+
+void ParamRow::openEdit() {
     if (!edit) {
         edit = std::make_unique<juce::TextEditor>();
         addAndMakeVisible(*edit);
@@ -197,6 +205,15 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     styleLabel(nameLabel); nameLabel.setText("name: -", juce::dontSendNotification);
     styleLabel(connLabel); connLabel.setText("connection: -", juce::dontSendNotification);
 
+    // click "normal operation" to leave edit-only mode
+    opLabel.onClick = [this] {
+        if (editOnly.getToggleState()) {
+            editOnly.setToggleState(false, juce::dontSendNotification);
+            proc.device.setEditMode(false);
+            opLabel.setColour(juce::Label::textColourId, kFg);
+        }
+    };
+
     nameLabel.setEditable(false, true);  // double-click to rename
     nameLabel.onTextChange = [this] {
         auto n = nameLabel.getText().fromFirstOccurrenceOf(":", false, false).trim();
@@ -257,6 +274,7 @@ ExoPalmEditor::ExoPalmEditor(ExoPalmProcessor& p)
     };
 
     initRow(modeRow, "mode", 0, 1);
+    modeRow.toggleOnClick = true;
     modeRow.formatter = [](uint8_t v) { return v ? "note" : "cc"; };
     modeRow.onValue = [this](uint8_t v) {
         sendParam(palm::addrPreset(preset, 0), v ? (uint8_t)1 : (uint8_t)0);
@@ -699,6 +717,8 @@ void ExoPalmEditor::sendParam(int addr, uint8_t v) {
 void ExoPalmEditor::openPortAt(int idx) {
     if (idx < 0 || idx >= ports.size()) return;
     if (proc.device.open(ports.getReference(idx))) {
+        probing = true;   // cleared by the first reply; silent port = try next
+        openedAt = juce::Time::getMillisecondCounter();
         proc.device.requestInfo();
         proc.device.requestDump();
         if (editOnly.getToggleState()) proc.device.setEditMode(true);  // reassert
@@ -720,26 +740,44 @@ void ExoPalmEditor::rescanPorts() {
         portBox.clear(juce::dontSendNotification);
         int id = 1;
         for (auto& p : ports) portBox.addItem("midi port: " + p.name, id++);
+        if (proc.device.isOpen())   // keep showing the connected port
+            for (int i = 0; i < ports.size(); i++)
+                if (ports.getReference(i).name == proc.device.openPortName())
+                    portBox.setSelectedItemIndex(i, juce::dontSendNotification);
     }
 
-    // auto-connect: first port that looks like a palm (hub ports scan first)
-    if (!proc.device.isOpen())
-        for (int i = 0; i < ports.size(); i++)
-            if (ports.getReference(i).name.containsIgnoreCase("palm")) {
-                portBox.setSelectedItemIndex(i, juce::dontSendNotification);
-                openPortAt(i);
-                break;
-            }
+    if (proc.device.isOpen()) return;
+
+    // auto-connect: cycle through everything palm-shaped (hub ports scan
+    // first) until one actually answers
+    juce::Array<int> candidates;
+    for (int i = 0; i < ports.size(); i++)
+        if (ports.getReference(i).name.containsIgnoreCase("palm")) candidates.add(i);
+    if (candidates.isEmpty()) return;
+    int i = candidates[autoIdx % candidates.size()];
+    portBox.setSelectedItemIndex(i, juce::dontSendNotification);
+    openPortAt(i);
 }
 
-void ExoPalmEditor::timerCallback() { rescanPorts(); }
+void ExoPalmEditor::timerCallback() {
+    // silent port: the palm is linked over the other transport -- move on
+    if (proc.device.isOpen() && probing
+        && juce::Time::getMillisecondCounter() - openedAt > 4500) {
+        probing = false;
+        proc.device.close();
+        autoIdx++;
+    }
+    rescanPorts();
+}
 
 void ExoPalmEditor::deviceInfoReceived(const palm::DeviceInfo& i) {
+    probing = false;
     nameLabel.setText("name: " + juce::String(i.name), juce::dontSendNotification);
     opLabel.setText("normal operation", juce::dontSendNotification);
 }
 
 void ExoPalmEditor::configReceived(const palm::Config& c) {
+    probing = false;
     proc.lastConfig = c;
     refreshFromConfig();
 }
@@ -753,6 +791,7 @@ void ExoPalmEditor::connectionChanged() {
 }
 
 void ExoPalmEditor::midiActivity(const juce::MidiMessage& m) {
+    probing = false;   // any traffic proves the port is alive
     MonRow r;
     if (m.isController()) { r.msg = "cc"; r.num = juce::String(m.getControllerNumber()); r.val = juce::String(m.getControllerValue()); }
     else if (m.isNoteOn()) { r.msg = "note on"; r.num = juce::MidiMessage::getMidiNoteName(m.getNoteNumber(), true, true, 3); r.val = juce::String((int)m.getVelocity()); }

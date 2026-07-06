@@ -33,11 +33,14 @@ public:
 // (the editor sends the mapped MIDI message to the host for MIDI-learn).
 class ParamRow : public juce::Component {
 public:
+    ParamRow() { setWantsKeyboardFocus(true); }  // so open text boxes lose focus
+
     juce::String label;
     juce::Font font { juce::FontOptions{} };
     bool disableable = false;     // 255 = off, via drag below min
     bool allow255Above = false;   // 255 = hang/gate, via drag above max
-    bool hasIcon = false;         // MIDI DIN plug, click = onIconClick
+    bool hasIcon = false;         // MIDI DIN plug, click = onIconClick + text box
+    bool toggleOnClick = false;   // two-state row: single click flips it
     bool readOnly = false;        // display only (chord name row)
     uint8_t minV = 0, maxV = 127;
     int valueX = 106;             // mockup value column, relative to row origin
@@ -59,8 +62,15 @@ private:
     int dragStartVal = 0;
     std::unique_ptr<juce::TextEditor> edit;
     bool committing = false;
+    void openEdit();
     void commitEdit(bool applyText);
     void apply(uint8_t v) { raw = v; repaint(); if (onValue) onValue(v); }
+};
+
+// A label with a click action ("normal operation" flips edit-only back off)
+struct ClickLabel : juce::Label {
+    std::function<void()> onClick;
+    void mouseDown(const juce::MouseEvent&) override { if (onClick) onClick(); }
 };
 
 class ExoPalmEditor : public juce::AudioProcessorEditor,
@@ -78,10 +88,14 @@ public:
 private:
     // All children live here at mockup coordinates; the editor only scales it.
     struct Canvas : juce::Component {
+        Canvas() { setWantsKeyboardFocus(true); }  // clicks close open text boxes
         std::function<void(juce::Graphics&)> onPaint;
         std::function<void(const juce::MouseEvent&)> onMouse;
         void paint(juce::Graphics& g) override { if (onPaint) onPaint(g); }
-        void mouseDown(const juce::MouseEvent& e) override { if (onMouse) onMouse(e); }
+        void mouseDown(const juce::MouseEvent& e) override {
+            grabKeyboardFocus();
+            if (onMouse) onMouse(e);
+        }
     };
 
     void deviceInfoReceived(const palm::DeviceInfo&) override;
@@ -122,7 +136,8 @@ private:
 
     // header
     juce::ComboBox portBox;
-    juce::Label opLabel, nameLabel, connLabel;
+    ClickLabel opLabel;                 // click = back to normal operation
+    juce::Label nameLabel, connLabel;
     juce::ToggleButton editOnly { "edit only output" };
     juce::TextButton saveBtn { "save" }, revertBtn { "revert" };
 
@@ -146,6 +161,12 @@ private:
     juce::Array<PalmDevice::Port> ports;
     int preset = 0, finger = 6;            // default INDEX_A like the mockup
     bool loadingUi = false;
+
+    // connection probe: a "palm" port can exist while the device is linked
+    // elsewhere (hub vs BLE) -- if a port stays silent, try the next one
+    bool probing = false;
+    juce::uint32 openedAt = 0;
+    int autoIdx = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExoPalmEditor)
 };
